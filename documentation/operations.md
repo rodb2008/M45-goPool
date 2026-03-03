@@ -150,7 +150,7 @@ Optional split override files can layer advanced settings without touching the m
 - `[hashrate]`: `hashrate_ema_tau_seconds`, `share_ntime_max_forward_seconds`.
 - `[peer_cleaning]`: Enable/disable peer cleanup and tune thresholds.
 - `[bans]`: Ban thresholds/durations, `banned_miner_types` (disconnect miners by client ID on subscribe), and `clean_expired_on_startup` (defaults to `true`). Prefer `data/config/miner_blacklist.json` for client ID blacklist management; it overrides `banned_miner_types` when present. Set `clean_expired_on_startup = false` if you want to keep expired bans for inspection.
-- `[version]` in `policy.toml`: `min_version_bits`, `share_allow_degraded_version_bits`, and `bip110_enabled` (sets bit 4 on newly generated templates).
+- `[version]` in `policy.toml`: `min_version_bits`, `share_allow_version_mask_mismatch` (allows submits outside negotiated mask, useful for BIP-110 bit 4 signaling), `share_allow_degraded_version_bits`, and `bip110_enabled` (sets bit 4 on newly generated templates).
 - `version_bits.toml`: explicit `[[bits]]` overrides for block header version bits (`bit=<0..31>`, `enabled=true|false`). This file is read-only from goPool's perspective and is never rewritten. Overrides are applied after `bip110_enabled`, so `version_bits.toml` has final authority per bit.
 
 Keep these files absent to use built-in defaults. The first run creates examples under `data/config/examples/`.

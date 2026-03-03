@@ -578,6 +578,9 @@ func applyFileOverrides(cfg *Config, fc fileOverrideConfig) {
 	if fc.Version.MinVersionBits != nil {
 		cfg.MinVersionBits = *fc.Version.MinVersionBits
 	}
+	if fc.Version.ShareAllowVersionMaskMismatch != nil {
+		cfg.ShareAllowVersionMaskMismatch = *fc.Version.ShareAllowVersionMaskMismatch
+	}
 	if fc.Version.ShareAllowDegradedVersionBits != nil {
 		cfg.ShareAllowDegradedVersionBits = *fc.Version.ShareAllowDegradedVersionBits
 	}

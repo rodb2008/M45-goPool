@@ -55,6 +55,17 @@ goPool applies version changes in this order:
 
 `version_bits.toml` has final authority for any bit you list.
 
+## Miner submit compatibility
+
+`policy.toml [version].share_allow_version_mask_mismatch` controls whether
+goPool rejects miner-submitted version changes outside the negotiated
+version-rolling mask:
+
+- `true` (default): allow out-of-mask submits for compatibility (for example
+  miners signaling BIP-110 bit 4).
+- `false`: strict mask enforcement (`invalid version mask` policy reject on
+  non-block shares).
+
 ## Bitcoin version bits reference
 
 | Bit Range | Value/Use | Description |

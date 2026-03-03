@@ -183,6 +183,8 @@ func policyConfigDocComments() []byte {
 #
 # Version policy ([version])
 # - min_version_bits
+# - share_allow_version_mask_mismatch: allow miners to submit version bits
+#   outside the negotiated version-rolling mask (useful for BIP-110 bit 4 signaling).
 # - share_allow_degraded_version_bits
 # - bip110_enabled: set BIP-110 signaling bit 4 on generated templates.
 #   Reference: https://github.com/bitcoin/bips/blob/master/bip-0110.mediawiki

@@ -198,6 +198,7 @@ type banTuning struct {
 
 type versionTuning struct {
 	MinVersionBits                *int  `toml:"min_version_bits"`
+	ShareAllowVersionMaskMismatch *bool `toml:"share_allow_version_mask_mismatch"`
 	ShareAllowDegradedVersionBits *bool `toml:"share_allow_degraded_version_bits"`
 	BIP110Enabled                 *bool `toml:"bip110_enabled"`
 }
