@@ -8,6 +8,10 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   unit:
     runs-on: ubuntu-24.04
@@ -34,4 +38,4 @@ jobs:
         with:
           files: coverage.out
           fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
+          use_oidc: true
