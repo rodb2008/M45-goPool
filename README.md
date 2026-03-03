@@ -16,6 +16,15 @@ goPool is a **from-scratch Golang solo Bitcoin mining pool**. It connects direct
 
 ## Feature highlights
 
+- **Simple live dashboard** to quickly see pool health and mining activity.
+- **Worker pages** so you can check each rig's speed and recent performance.
+- **Online/offline status** so you can quickly see which miners are up or down.
+- **Saved workers** so your favorite rigs are easy to revisit anytime.
+- **24-hour hashrate charts** to spot drops, spikes, and stability trends.
+- **Best share tracking** so you can see standout shares over time.
+- **Discord pings** (optional): alerts when a saved worker goes offline, when it has been back online long enough to count as recovered, and when a saved worker finds a block.
+- **Easy connect details** shown on the site for miner setup.
+
 - **Solo mining core**: builds and submits Bitcoin blocks directly against Bitcoin Core (`getblocktemplate` + `submitblock`) with JSON-RPC and optional ZMQ acceleration.
 - **Stratum v1 server**: supports `mining.subscribe`, `mining.authorize`, `mining.submit`, `mining.configure`, CKPool-style `mining.auth`, and optional Stratum TLS.
 - **Compatibility controls**: CKPool subscribe-response emulation, version-rolling support, suggest-difficulty handling, optional `mining.set_extranonce` and `mining.set_version_mask` notifications.
