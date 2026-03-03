@@ -66,6 +66,25 @@ func decodeExtranonce2HexBytes(extranonce2 []byte, validateFields bool, expected
 	return small, uint16(size), large, nil
 }
 
+// resolveSubmittedVersion interprets submit version values as deltas
+// (rolled_version ^ base_version) whenever possible.
+//
+// Values fully inside the negotiated mask are always treated as deltas.
+// When out-of-mask values are allowed, goPool stays in delta-only mode for
+// compatibility with miners that submit only version deltas.
+func resolveSubmittedVersion(baseVersion, submittedVersion, versionMask uint32, allowMaskMismatch bool) (useVersion, versionDiff uint32) {
+	if submittedVersion == 0 {
+		return baseVersion, 0
+	}
+	if submittedVersion&^versionMask == 0 {
+		return baseVersion ^ submittedVersion, submittedVersion
+	}
+	if allowMaskMismatch {
+		return baseVersion ^ submittedVersion, submittedVersion
+	}
+	return submittedVersion, submittedVersion ^ baseVersion
+}
+
 // parseSubmitParams validates and extracts the core fields from a mining.submit
 // request, recording and responding to any parameter errors. It returns params
 // and ok=false when a response has already been sent.
@@ -461,17 +480,7 @@ func (mc *MinerConn) prepareSubmissionTaskFromParsedBytes(reqID any, params subm
 	}
 
 	baseVersion := uint32(job.Template.Version)
-	useVersion := baseVersion
-	versionDiff := uint32(0)
-	if submittedVersion != 0 {
-		if submittedVersion&^mc.versionMask == 0 {
-			useVersion = baseVersion ^ submittedVersion
-			versionDiff = submittedVersion
-		} else {
-			useVersion = submittedVersion
-			versionDiff = useVersion ^ baseVersion
-		}
-	}
+	useVersion, versionDiff := resolveSubmittedVersion(baseVersion, submittedVersion, mc.versionMask, mc.cfg.ShareAllowVersionMaskMismatch)
 
 	extranonce2 := ""
 	ntime := ""
@@ -676,20 +685,7 @@ func (mc *MinerConn) prepareSubmissionTaskFromParsed(reqID any, params submitPar
 
 	// BIP320: reject version rolls outside the negotiated mask (docs/protocols/bip-0320.mediawiki).
 	baseVersion := uint32(job.Template.Version)
-	useVersion := baseVersion
-	versionDiff := uint32(0)
-	if submittedVersion != 0 {
-		// ESP-Miner sends the delta (rolled_version ^ base_version), while other
-		// miners send the full rolled version. Treat values that fit entirely
-		// inside the negotiated mask as a delta, otherwise as a full version.
-		if submittedVersion&^mc.versionMask == 0 {
-			useVersion = baseVersion ^ submittedVersion
-			versionDiff = submittedVersion
-		} else {
-			useVersion = submittedVersion
-			versionDiff = useVersion ^ baseVersion
-		}
-	}
+	useVersion, versionDiff := resolveSubmittedVersion(baseVersion, submittedVersion, mc.versionMask, mc.cfg.ShareAllowVersionMaskMismatch)
 
 	versionHex := ""
 	if debugLogging || verboseRuntimeLogging {

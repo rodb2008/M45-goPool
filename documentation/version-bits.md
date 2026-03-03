@@ -66,6 +66,19 @@ version-rolling mask:
 - `false` (default): strict mask enforcement (`invalid version mask` policy reject on
   non-block shares).
 
+### How goPool interprets submitted `version`
+
+goPool uses **delta semantics** for submit `version` values (`rolled_version ^ base_version`).
+
+- Values fully inside the negotiated mask are treated as deltas.
+- When `share_allow_version_mask_mismatch = true`, out-of-mask values are also
+  treated as deltas (delta-only compatibility behavior).
+
+Practical implication when `share_allow_version_mask_mismatch = true`:
+
+- Out-of-mask signaling (for example BIP-110 bit 4) should be sent as a delta
+  (example: `0x00000010`).
+
 ## Bitcoin version bits reference
 
 | Bit Range | Value/Use | Description |

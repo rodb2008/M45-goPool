@@ -809,7 +809,25 @@ func TestPrepareSubmissionTaskFastBytes_Parity_FieldValidationAndBoundaries(t *t
 			wantPolicyReason: rejectUnknown,
 			wantNTime:        1700000000,
 			wantNonce:        1,
-			wantUseVersion:   0x10,
+			wantUseVersion:   0x11, // base version 1 XOR out-of-mask delta 0x10
+		},
+		{
+			name: "full version outside mask is interpreted as delta in compatibility mode",
+			configure: func(mc *MinerConn, _ *Job) {
+				mc.cfg.ShareCheckVersionRolling = true
+				mc.cfg.ShareAllowVersionMaskMismatch = true
+				mc.versionMask = 0x0000000f
+				mc.versionRoll = true
+				mc.minVerBits = 0
+			},
+			mutateReq: func(req *StratumRequest) {
+				req.Params = append(req.Params, "20000010")
+			},
+			wantOK:           true,
+			wantPolicyReason: rejectUnknown,
+			wantNTime:        1700000000,
+			wantNonce:        1,
+			wantUseVersion:   0x20000011, // base version 1 XOR submitted value
 		},
 		{
 			name: "version outside mask policy reject",
