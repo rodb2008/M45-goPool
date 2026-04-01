@@ -11,27 +11,28 @@ require (
 	github.com/bwmarrin/discordgo v0.29.0
 	github.com/bytedance/sonic v1.15.0
 	github.com/clerk/clerk-sdk-go/v2 v2.5.1
-	github.com/golang-jwt/jwt/v5 v5.3.0
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/hako/durafmt v0.0.0-20210608085754-5c1018a4e16b
 	github.com/martinhoefling/goxkcdpwgen v0.1.1
 	github.com/minio/sha256-simd v1.0.1
 	github.com/pebbe/zmq4 v1.4.0
 	github.com/pelletier/go-toml v1.9.5
 	github.com/remeh/sizedwaitgroup v1.0.0
-	golang.org/x/sys v0.40.0
-	modernc.org/sqlite v1.44.1
+	golang.org/x/sys v0.42.0
+	modernc.org/sqlite v1.48.0
 )
 
 require (
 	github.com/btcsuite/btclog v1.0.0 // indirect
-	github.com/bytedance/gopkg v0.1.3 // indirect
-	github.com/bytedance/sonic/loader v0.5.0 // indirect
+	github.com/bytedance/gopkg v0.1.4 // indirect
+	github.com/bytedance/sonic/loader v0.5.1 // indirect
 	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/decred/dcrd/crypto/blake256 v1.1.0 // indirect
-	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/go-jose/go-jose/v3 v3.0.4 // indirect
+	github.com/go-jose/go-jose/v3 v3.0.5 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
+	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
@@ -40,10 +41,10 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
-	golang.org/x/arch v0.23.0 // indirect
-	golang.org/x/crypto v0.47.0 // indirect
-	golang.org/x/exp v0.0.0-20260112195511-716be5621a96 // indirect
-	modernc.org/libc v1.67.6 // indirect
+	golang.org/x/arch v0.25.0 // indirect
+	golang.org/x/crypto v0.49.0 // indirect
+	golang.org/x/tools v0.43.0 // indirect
+	modernc.org/libc v1.70.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
