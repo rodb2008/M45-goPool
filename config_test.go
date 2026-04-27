@@ -654,6 +654,37 @@ func TestAutoConfigureAcceptRateLimits_SteadyStateAbove1000Capped(t *testing.T) 
 	}
 }
 
+func TestLoadTuningFile_IgnoresRemovedStratumFastPathKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tuning.toml")
+	data := []byte(`
+[stratum]
+  fast_decode_enabled = true
+  fast_encode_enabled = true
+  tcp_read_buffer_bytes = 131072
+  tcp_write_buffer_bytes = 262144
+`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("write tuning file: %v", err)
+	}
+
+	loaded, ok, err := loadTuningFile(path)
+	if err != nil {
+		t.Fatalf("loadTuningFile returned error for legacy fast-path keys: %v", err)
+	}
+	if !ok || loaded == nil {
+		t.Fatalf("expected tuning file to load")
+	}
+
+	cfg := defaultConfig()
+	applyTuningConfig(&cfg, *loaded)
+	if cfg.StratumTCPReadBufferBytes != 131072 {
+		t.Fatalf("StratumTCPReadBufferBytes = %d, want 131072", cfg.StratumTCPReadBufferBytes)
+	}
+	if cfg.StratumTCPWriteBufferBytes != 262144 {
+		t.Fatalf("StratumTCPWriteBufferBytes = %d, want 262144", cfg.StratumTCPWriteBufferBytes)
+	}
+}
+
 func TestRewriteConfigFile_BackupAndAtomic(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "config.toml")
