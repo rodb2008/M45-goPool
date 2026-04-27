@@ -55,7 +55,10 @@ func (mc *MinerConn) processShare(task submissionTask, ctx shareContext) {
 	nonce := task.nonce
 	versionHex := task.versionHex
 
-	assignedDiff := mc.assignedDifficulty(jobID)
+	assignedDiff := task.assignedDifficulty
+	if assignedDiff <= 0 {
+		assignedDiff = mc.assignedDifficulty(jobID)
+	}
 	currentDiff := mc.currentDifficulty()
 	creditedDiff := assignedDiff
 	if creditedDiff <= 0 {

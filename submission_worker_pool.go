@@ -31,24 +31,25 @@ func ensureSubmissionWorkerPool() {
 }
 
 type submissionTask struct {
-	mc               *MinerConn
-	reqID            any
-	job              *Job
-	jobID            string
-	workerName       string
-	extranonce2      string
-	extranonce2Len   uint16
-	extranonce2Bytes [32]byte
-	extranonce2Large []byte
-	ntime            string
-	ntimeVal         uint32
-	nonce            string
-	nonceVal         uint32
-	versionHex       string
-	useVersion       uint32
-	scriptTime       int64
-	policyReject     submitPolicyReject
-	receivedAt       time.Time
+	mc                 *MinerConn
+	reqID              any
+	job                *Job
+	jobID              string
+	workerName         string
+	extranonce2        string
+	extranonce2Len     uint16
+	extranonce2Bytes   [32]byte
+	extranonce2Large   []byte
+	ntime              string
+	ntimeVal           uint32
+	nonce              string
+	nonceVal           uint32
+	versionHex         string
+	useVersion         uint32
+	scriptTime         int64
+	assignedDifficulty float64
+	policyReject       submitPolicyReject
+	receivedAt         time.Time
 }
 
 func (t *submissionTask) extranonce2Decoded() []byte {

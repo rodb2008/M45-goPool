@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/hex"
+	"strings"
 	"testing"
 )
 
@@ -75,5 +76,31 @@ func TestBuildCurrentJobCoinbaseDetail_UsesExactSinglePayoutPath(t *testing.T) {
 	}
 	if !bytes.Equal(gotRaw, expectedRaw) {
 		t.Fatalf("coinbase mismatch between display path and miner build path")
+	}
+}
+
+func TestBuildCurrentJobCoinbaseDetail_UsesLatestStratumNotifyID(t *testing.T) {
+	mc, _ := minerConnForNotifyTest(t)
+	job := benchmarkSubmitJobForTest(t)
+
+	mc.sendNotifyFor(job, true)
+
+	mc.jobMu.Lock()
+	if _, ok := mc.jobNotifyCoinbase[job.JobID]; ok {
+		t.Fatalf("expected notify coinbase to be keyed by emitted stratum job id, not template job id")
+	}
+	parts, ok := mc.jobNotifyCoinbase[mc.lastJobID]
+	mc.jobMu.Unlock()
+	if !ok {
+		t.Fatalf("missing notify coinbase for last stratum job id")
+	}
+
+	detail := mc.buildCurrentJobCoinbaseDetail(job)
+	if detail == nil || detail.Coinbase == "" {
+		t.Fatalf("buildCurrentJobCoinbaseDetail failed for latest stratum job id")
+	}
+	expected := parts.coinb1 + hex.EncodeToString(mc.extranonce1) + strings.Repeat("00", job.Extranonce2Size) + parts.coinb2
+	if detail.Coinbase != expected {
+		t.Fatalf("coinbase detail mismatch\n got: %s\nwant: %s", detail.Coinbase, expected)
 	}
 }

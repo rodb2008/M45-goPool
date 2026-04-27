@@ -7,7 +7,24 @@ import (
 
 func notifyJobIDsFromOutput(t *testing.T, out string) []string {
 	t.Helper()
-	var ids []string
+	msgs := notifyMessagesFromOutput(t, out)
+	ids := make([]string, 0, len(msgs))
+	for _, msg := range msgs {
+		if len(msg.Params) == 0 {
+			t.Fatalf("notify without params: %#v", msg)
+		}
+		id, ok := msg.Params[0].(string)
+		if !ok || id == "" {
+			t.Fatalf("notify job id is not a non-empty string: %#v", msg.Params[0])
+		}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func notifyMessagesFromOutput(t *testing.T, out string) []StratumMessage {
+	t.Helper()
+	var msgs []StratumMessage
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -20,19 +37,13 @@ func notifyJobIDsFromOutput(t *testing.T, out string) []string {
 		if msg.Method != "mining.notify" {
 			continue
 		}
-		if len(msg.Params) == 0 {
-			t.Fatalf("notify without params: %q", line)
-		}
-		id, ok := msg.Params[0].(string)
-		if !ok || id == "" {
-			t.Fatalf("notify job id is not a non-empty string: %#v", msg.Params[0])
-		}
-		ids = append(ids, id)
+		msgs = append(msgs, msg)
 	}
-	return ids
+	return msgs
 }
 
-func TestSendNotifyForUsesUniqueStratumJobIDsForRepeatedNotify(t *testing.T) {
+func minerConnForNotifyTest(t *testing.T) (*MinerConn, *recordConn) {
+	t.Helper()
 	mc := benchmarkMinerConnForSubmit(NewPoolMetrics())
 	conn := &recordConn{}
 	mc.conn = conn
@@ -43,6 +54,11 @@ func TestSendNotifyForUsesUniqueStratumJobIDsForRepeatedNotify(t *testing.T) {
 	mc.jobDifficulty = make(map[string]float64, mc.maxRecentJobs)
 	mc.jobScriptTime = make(map[string]int64, mc.maxRecentJobs)
 	mc.jobNotifyCoinbase = make(map[string]notifiedCoinbaseParts, mc.maxRecentJobs)
+	return mc, conn
+}
+
+func TestSendNotifyForUsesUniqueStratumJobIDsForRepeatedNotify(t *testing.T) {
+	mc, conn := minerConnForNotifyTest(t)
 
 	job := benchmarkSubmitJobForTest(t)
 	job.ScriptTime = job.Template.CurTime
