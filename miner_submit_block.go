@@ -13,13 +13,15 @@ import (
 // builds the full block (reusing any dual-payout header/coinbase when
 // available), submits it via RPC, logs the reward split and found-block
 // record, and sends the final Stratum response.
-func (mc *MinerConn) handleBlockShare(reqID any, job *Job, workerName string, en2 []byte, ntime string, nonce string, useVersion uint32, hashHex string, shareDiff float64, now time.Time) {
+func (mc *MinerConn) handleBlockShare(reqID any, job *Job, stratumJobID string, workerName string, en2 []byte, ntime string, nonce string, useVersion uint32, scriptTime int64, hashHex string, shareDiff float64, now time.Time) {
 	var (
 		blockHex  string
 		submitRes any
 		err       error
 	)
-	scriptTime := mc.scriptTimeForJob(job.JobID, job.ScriptTime)
+	if scriptTime == 0 {
+		scriptTime = mc.scriptTimeForJob(stratumJobID, job.ScriptTime)
+	}
 
 	// Only construct the full block (including all non-coinbase transactions)
 	// when the share actually satisfies the network target.

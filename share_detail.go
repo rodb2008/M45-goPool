@@ -43,6 +43,9 @@ func (mc *MinerConn) buildCurrentJobCoinbaseDetail(job *Job) *ShareDetail {
 	en2 := make([]byte, extranonce2Size)
 	mc.jobMu.Lock()
 	parts, ok := mc.jobNotifyCoinbase[job.JobID]
+	if !ok && mc.lastJob == job && mc.lastJobID != "" {
+		parts, ok = mc.jobNotifyCoinbase[mc.lastJobID]
+	}
 	mc.jobMu.Unlock()
 	if !ok || parts.coinb1 == "" || parts.coinb2 == "" {
 		return nil

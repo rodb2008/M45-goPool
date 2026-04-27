@@ -12,6 +12,7 @@ import (
 
 type countingSubmitRPC struct {
 	submitCalls atomic.Int64
+	blockHex    string
 }
 
 func (c *countingSubmitRPC) call(method string, params any, out any) error {
@@ -21,6 +22,11 @@ func (c *countingSubmitRPC) call(method string, params any, out any) error {
 func (c *countingSubmitRPC) callCtx(_ context.Context, method string, params any, out any) error {
 	if method == "submitblock" {
 		c.submitCalls.Add(1)
+		if p, ok := params.([]any); ok && len(p) > 0 {
+			if blockHex, ok := p[0].(string); ok {
+				c.blockHex = blockHex
+			}
+		}
 	}
 	return nil
 }
@@ -79,7 +85,6 @@ func TestWinningBlockNotRejectedAsDuplicate(t *testing.T) {
 	if dup := mc.isDuplicateShare(jobID, (&task).extranonce2Decoded(), task.ntimeVal, task.nonceVal, task.useVersion); dup {
 		t.Fatalf("unexpected duplicate when seeding cache")
 	}
-
 	mc.conn = nopConn{}
 	mc.processSubmissionTask(task)
 	flushFoundBlockLog(t)
@@ -212,6 +217,9 @@ func TestWinningBlockUsesNotifiedScriptTime(t *testing.T) {
 		scriptTime:       notifiedScriptTime,
 		receivedAt:       time.Unix(1700000000, 0),
 	}
+	// Simulate a clean re-notify for the same underlying template after the
+	// share was parsed. Block submission must still use task.scriptTime.
+	mc.jobScriptTime[jobID] = job.ScriptTime
 
 	mc.conn = nopConn{}
 	mc.processSubmissionTask(task)
@@ -220,6 +228,20 @@ func TestWinningBlockUsesNotifiedScriptTime(t *testing.T) {
 	rpc := mc.rpc.(*countingSubmitRPC)
 	if got := rpc.submitCalls.Load(); got != 1 {
 		t.Fatalf("expected submitblock to be called once, got %d", got)
+	}
+	expectedBlockHex, _, _, _, err := buildBlockWithScriptTime(job, mc.extranonce1, ex2, ntimeHex, chosenNonce, int32(useVersion), payoutScript, notifiedScriptTime)
+	if err != nil {
+		t.Fatalf("build expected notified block: %v", err)
+	}
+	fallbackBlockHex, _, _, _, err := buildBlockWithScriptTime(job, mc.extranonce1, ex2, ntimeHex, chosenNonce, int32(useVersion), payoutScript, job.ScriptTime)
+	if err != nil {
+		t.Fatalf("build fallback block: %v", err)
+	}
+	if rpc.blockHex != expectedBlockHex {
+		t.Fatalf("submitted block did not use notified scriptTime")
+	}
+	if rpc.blockHex == fallbackBlockHex {
+		t.Fatalf("submitted block used fallback scriptTime")
 	}
 }
 

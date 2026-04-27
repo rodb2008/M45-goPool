@@ -149,6 +149,7 @@ type MinerConn struct {
 	shareCache           map[string]*duplicateShareSet
 	evictedShareCache    map[string]*evictedCacheEntry
 	lastJob              *Job
+	lastJobID            string
 	lastJobPrevHash      string
 	lastJobHeight        int64
 	lastClean            bool
