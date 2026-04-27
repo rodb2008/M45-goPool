@@ -169,13 +169,14 @@ func (mc *MinerConn) processShare(task submissionTask, ctx shareContext) {
 
 	mc.noteValidSubmit(now)
 	mc.recordShare(workerName, true, creditedDiff, ctx.shareDiff, "", shareHash, detail, now)
-	mc.trackBestShare(workerName, shareHash, ctx.shareDiff, now)
-	mc.maybeUpdateSavedWorkerMinuteBestDiff(ctx.shareDiff, now)
-	mc.maybeUpdateSavedWorkerBestDiff(ctx.shareDiff)
 
 	// Respond first; any vardiff adjustment and follow-up notify can happen after
 	// the submit is acknowledged to minimize perceived submit latency.
 	mc.writeTrueResponse(reqID)
+
+	mc.trackBestShare(workerName, shareHash, ctx.shareDiff, now)
+	mc.maybeUpdateSavedWorkerMinuteBestDiff(ctx.shareDiff, now)
+	mc.maybeUpdateSavedWorkerBestDiff(ctx.shareDiff)
 
 	if mc.maybeAdjustDifficulty(now) {
 		mc.sendNotifyFor(job, true)
