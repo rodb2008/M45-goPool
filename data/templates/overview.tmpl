@@ -403,29 +403,32 @@
 			return (rate / 1000000000).toFixed(1) + 'G';
 		}
 
+		function formatSmallDifficulty(value) {
+			let prec = Math.ceil(-Math.log10(value)) + 2;
+			prec = Math.min(8, Math.max(3, prec));
+			const scale = 10 ** prec;
+			const trunc = Math.floor(value * scale) / scale;
+			let s = trunc.toFixed(prec);
+			s = s.replace(/\.?0+$/, '');
+			if (s === '0') return value.toPrecision(3).replace(/\.?0+(e|$)/, '$1');
+			return s;
+		}
+
 		function formatDiff(d) {
-			if (!d) return '—';
-			if (d < 1) {
-				let prec = Math.ceil(-Math.log10(d)) + 2;
-				prec = Math.min(8, Math.max(3, prec));
-				const scale = 10 ** prec;
-				const trunc = Math.floor(d * scale) / scale;
-				let s = trunc.toFixed(prec);
-				s = s.replace(/\.?0+$/, '');
-				if (s === '0') return d.toExponential(3);
-				return s;
+			const value = Number(d || 0);
+			if (!Number.isFinite(value) || value <= 0) return '—';
+			if (value < 1) return formatSmallDifficulty(value);
+			if (value < 1000000) return value.toFixed(0);
+			if (value >= 1000000000000000) {
+				return (value / 1000000000000000).toFixed(1) + 'P';
 			}
-			if (d < 1000000) return d.toFixed(0);
-			if (d >= 1000000000000000) {
-				return (d / 1000000000000000).toFixed(1) + 'P';
+			if (value >= 1000000000000) {
+				return (value / 1000000000000).toFixed(1) + 'T';
 			}
-			if (d >= 1000000000000) {
-				return (d / 1000000000000).toFixed(1) + 'T';
+			if (value >= 1000000000) {
+				return (value / 1000000000).toFixed(1) + 'G';
 			}
-			if (d >= 1000000000) {
-				return (d / 1000000000).toFixed(1) + 'G';
-			}
-			return (d / 1000000).toFixed(1) + 'M';
+			return (value / 1000000).toFixed(1) + 'M';
 		}
 
 		function formatBestShareDiff(d) {
@@ -887,20 +890,11 @@
 		}
 
 		function formatDifficulty(diff) {
-			if (!diff || diff <= 0) {
+			const value = Number(diff || 0);
+			if (!Number.isFinite(value) || value <= 0) {
 				return '--';
 			}
-			if (diff < 1000000) return diff.toFixed(0);
-			if (diff >= 1000000000000000) {
-				return (diff / 1000000000000000).toFixed(1) + 'P';
-			}
-			if (diff >= 1000000000000) {
-				return (diff / 1000000000000).toFixed(1) + 'T';
-			}
-			if (diff >= 1000000000) {
-				return (diff / 1000000000).toFixed(1) + 'G';
-			}
-			return (diff / 1000000).toFixed(1) + 'M';
+			return formatDiff(value);
 		}
 
 		function formatDuration(seconds) {

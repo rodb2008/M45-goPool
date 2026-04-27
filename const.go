@@ -105,7 +105,7 @@ const (
 	defaultVarDiffStep               = 2
 	defaultVarDiffDampingFactor      = 0.7
 	defaultVarDiffRetargetDelay      = 30 * time.Second
-	defaultDifficultyStepGranularity = 4
+	defaultDifficultyStepGranularity = 10
 	vardiffAdaptiveMinWindow         = 30 * time.Second
 	vardiffAdaptiveMaxWindow         = 4 * time.Minute
 	vardiffAdaptiveHighShareCount    = 24.0

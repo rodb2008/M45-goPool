@@ -144,7 +144,7 @@ func tuningConfigDocComments() []byte {
 # - template_extra_nonce2_size: Template extranonce2 byte length used in generated jobs (requires restart).
 # - job_entropy: Entropy bytes added to per-job coinbase tags (requires restart).
 # - coinbase_scriptsig_max_bytes: Maximum allowed coinbase scriptSig size in bytes (requires restart).
-# - difficulty_step_granularity: Quantize difficulty to 2^(k/N) steps (N=1 power-of-two, N=2 half, N=3 third, N=4 quarter). Higher values are finer; requires restart.
+# - difficulty_step_granularity: Quantize difficulty to 2^(k/N) steps (N=1 power-of-two, N=4 quarter, N=10 tenth-step default). Higher values are finer; requires restart.
 #
 # Hashrate ([hashrate])
 # - hashrate_ema_tau_seconds: EMA time constant for per-connection hashrate smoothing (seconds; requires restart).

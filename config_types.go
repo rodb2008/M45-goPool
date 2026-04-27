@@ -148,7 +148,7 @@ type Config struct {
 
 	LockSuggestedDifficulty          bool          // keep suggested difficulty instead of vardiff
 	EnforceSuggestedDifficultyLimits bool          // ban/disconnect when suggest_* outside min/max
-	DifficultyStepGranularity        int           // 1=pow2, 2=half, 3=third, 4=quarter steps
+	DifficultyStepGranularity        int           // quantize to 2^(k/N) steps; default N=10
 	HashrateEMATauSeconds            float64       // EMA time constant for hashrate
 	HashrateCumulativeEnabled        bool          // blend per-connection EMA with cumulative hashrate (display)
 	HashrateRecentCumulativeEnabled  bool          // allow short-horizon cumulative (vardiff window) to influence display

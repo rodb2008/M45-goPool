@@ -665,6 +665,61 @@ func formatLatencyMS(ms float64) string {
 	return fmt.Sprintf("%.1fm", sec/60)
 }
 
+func formatDiffValue(d float64) string {
+	if d <= 0 || math.IsNaN(d) || math.IsInf(d, 0) {
+		return "0"
+	}
+	if d < 1 {
+		// Display small difficulties as decimals (e.g. 0.5) instead of rounding to 0.
+		//
+		// We intentionally truncate instead of round so values slightly below 1 don't
+		// display as "1" due to formatting.
+		prec := max(int(math.Ceil(-math.Log10(d)))+2, 3)
+		if prec > 8 {
+			prec = 8
+		}
+		scale := math.Pow10(prec)
+		trunc := math.Trunc(d*scale) / scale
+		s := strconv.FormatFloat(trunc, 'f', prec, 64)
+		s = strings.TrimRight(s, "0")
+		s = strings.TrimRight(s, ".")
+		if s == "" || s == "0" {
+			// Extremely small values may truncate to 0 at our precision cap.
+			return strconv.FormatFloat(d, 'g', 3, 64)
+		}
+		return s
+	}
+	if d < 1_000_000 {
+		return fmt.Sprintf("%.0f", math.Round(d))
+	}
+	switch {
+	case d >= 1_000_000_000_000_000:
+		return fmt.Sprintf("%.1fP", d/1_000_000_000_000_000.0)
+	case d >= 1_000_000_000_000:
+		return fmt.Sprintf("%.1fT", d/1_000_000_000_000.0)
+	case d >= 1_000_000_000:
+		return fmt.Sprintf("%.1fG", d/1_000_000_000.0)
+	default:
+		return fmt.Sprintf("%.1fM", d/1_000_000.0)
+	}
+}
+
+func formatDiffDetailValue(d float64) string {
+	if d <= 0 || math.IsNaN(d) || math.IsInf(d, 0) {
+		return "0"
+	}
+	if d < 1 {
+		return formatDiffValue(d)
+	}
+	s := strconv.FormatFloat(d, 'f', 8, 64)
+	s = strings.TrimRight(s, "0")
+	s = strings.TrimRight(s, ".")
+	if s == "" {
+		return "0"
+	}
+	return s
+}
+
 // buildTemplateFuncs returns the template.FuncMap used for all HTML templates.
 func buildTemplateFuncs() template.FuncMap {
 	return template.FuncMap{
@@ -703,44 +758,8 @@ func buildTemplateFuncs() template.FuncMap {
 			}
 			return formatLatencyMS(lastMS)
 		},
-		"formatDiff": func(d float64) string {
-			if d <= 0 {
-				return "0"
-			}
-			if d < 1 {
-				// Display small difficulties as decimals (e.g. 0.5) instead of rounding to 0.
-				//
-				// We intentionally truncate instead of round so values slightly below 1 don't
-				// display as "1" due to formatting.
-				prec := max(int(math.Ceil(-math.Log10(d)))+2, 3)
-				if prec > 8 {
-					prec = 8
-				}
-				scale := math.Pow10(prec)
-				trunc := math.Trunc(d*scale) / scale
-				s := strconv.FormatFloat(trunc, 'f', prec, 64)
-				s = strings.TrimRight(s, "0")
-				s = strings.TrimRight(s, ".")
-				if s == "" || s == "0" {
-					// Extremely small values may truncate to 0 at our precision cap.
-					return strconv.FormatFloat(d, 'g', 3, 64)
-				}
-				return s
-			}
-			if d < 1_000_000 {
-				return fmt.Sprintf("%.0f", math.Round(d))
-			}
-			switch {
-			case d >= 1_000_000_000_000_000:
-				return fmt.Sprintf("%.1fP", d/1_000_000_000_000_000.0)
-			case d >= 1_000_000_000_000:
-				return fmt.Sprintf("%.1fT", d/1_000_000_000_000.0)
-			case d >= 1_000_000_000:
-				return fmt.Sprintf("%.1fG", d/1_000_000_000.0)
-			default:
-				return fmt.Sprintf("%.1fM", d/1_000_000.0)
-			}
-		},
+		"formatDiff":       formatDiffValue,
+		"formatDiffDetail": formatDiffDetailValue,
 		"formatTime": func(t time.Time) string {
 			if t.IsZero() {
 				return "—"

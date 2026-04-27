@@ -1503,19 +1503,32 @@
 			return (value / 1000000000).toFixed(1) + 'G';
 		}
 
+			function formatSmallDifficulty(value) {
+				let prec = Math.ceil(-Math.log10(value)) + 2;
+				prec = Math.min(8, Math.max(3, prec));
+				const scale = 10 ** prec;
+				const trunc = Math.floor(value * scale) / scale;
+				let s = trunc.toFixed(prec);
+				s = s.replace(/\.?0+$/, '');
+				if (s === '0') return value.toPrecision(3).replace(/\.?0+(e|$)/, '$1');
+				return s;
+			}
+
 			function formatDifficulty(diff) {
 				const value = Number(diff || 0);
-				if (!value || value <= 0) return '—';
-			if (value < 1000000) return value.toFixed(0);
-			if (value >= 1000000000000000) return (value / 1000000000000000).toFixed(1) + 'P';
-			if (value >= 1000000000000) return (value / 1000000000000).toFixed(1) + 'T';
-			if (value >= 1000000000) return (value / 1000000000).toFixed(1) + 'G';
-			return (value / 1000000).toFixed(1) + 'M';
+				if (!Number.isFinite(value) || value <= 0) return '—';
+				if (value < 1) return formatSmallDifficulty(value);
+				if (value < 1000000) return value.toFixed(0);
+				if (value >= 1000000000000000) return (value / 1000000000000000).toFixed(1) + 'P';
+				if (value >= 1000000000000) return (value / 1000000000000).toFixed(1) + 'T';
+				if (value >= 1000000000) return (value / 1000000000).toFixed(1) + 'G';
+				return (value / 1000000).toFixed(1) + 'M';
 			}
 
 			function formatDifficultyGraph(diff) {
 				const value = Number(diff || 0);
 				if (!Number.isFinite(value) || value <= 0) return '0';
+				if (value < 1) return formatSmallDifficulty(value);
 				if (value < 1000) return value.toFixed(0);
 				const units = ['K', 'M', 'G', 'T', 'P', 'E'];
 				let scaled = value;
@@ -3772,21 +3785,34 @@
 			return `1 in ${rounded.toLocaleString()}`;
 		}
 
+		function formatSmallDifficulty(value) {
+			let prec = Math.ceil(-Math.log10(value)) + 2;
+			prec = Math.min(8, Math.max(3, prec));
+			const scale = 10 ** prec;
+			const trunc = Math.floor(value * scale) / scale;
+			let s = trunc.toFixed(prec);
+			s = s.replace(/\.?0+$/, '');
+			if (s === '0') return value.toPrecision(3).replace(/\.?0+(e|$)/, '$1');
+			return s;
+		}
+
 		function formatDifficulty(diff) {
-			if (!diff || diff <= 0) {
+			const value = Number(diff || 0);
+			if (!Number.isFinite(value) || value <= 0) {
 				return '--';
 			}
-			if (diff < 1000000) return diff.toFixed(0);
-			if (diff >= 1000000000000000) {
-				return (diff / 1000000000000000).toFixed(1) + 'P';
+			if (value < 1) return formatSmallDifficulty(value);
+			if (value < 1000000) return value.toFixed(0);
+			if (value >= 1000000000000000) {
+				return (value / 1000000000000000).toFixed(1) + 'P';
 			}
-			if (diff >= 1000000000000) {
-				return (diff / 1000000000000).toFixed(1) + 'T';
+			if (value >= 1000000000000) {
+				return (value / 1000000000000).toFixed(1) + 'T';
 			}
-			if (diff >= 1000000000) {
-				return (diff / 1000000000).toFixed(1) + 'G';
+			if (value >= 1000000000) {
+				return (value / 1000000000).toFixed(1) + 'G';
 			}
-			return (diff / 1000000).toFixed(1) + 'M';
+			return (value / 1000000).toFixed(1) + 'M';
 		}
 
 		function formatDuration(seconds) {
