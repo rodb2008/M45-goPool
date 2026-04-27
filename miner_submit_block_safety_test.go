@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -32,6 +34,26 @@ func (c *countingSubmitRPC) callCtx(_ context.Context, method string, params any
 	return nil
 }
 
+type rejectingSubmitRPC struct {
+	submitCalls atomic.Int64
+	result      any
+}
+
+func (r *rejectingSubmitRPC) callCtx(_ context.Context, method string, _ any, out any) error {
+	switch method {
+	case "submitblock":
+		r.submitCalls.Add(1)
+		if dst, ok := out.(*any); ok {
+			*dst = r.result
+		}
+		return nil
+	case "getblockheader":
+		return errors.New("block not found")
+	default:
+		return nil
+	}
+}
+
 func flushFoundBlockLog(t *testing.T) {
 	t.Helper()
 	done := make(chan struct{})
@@ -44,6 +66,26 @@ func flushFoundBlockLog(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatalf("timed out waiting for found block log flush")
+	}
+}
+
+func TestSubmitBlockResultStringIsRejection(t *testing.T) {
+	rpc := &rejectingSubmitRPC{result: "bad-cb-amount"}
+	mc := &MinerConn{
+		id:  "submitblock-result-test",
+		rpc: rpc,
+	}
+
+	var submitRes any
+	err := mc.submitBlockWithFastRetry(&Job{Template: GetBlockTemplateResult{Height: 1}}, "worker", strings.Repeat("0", 64), "deadbeef", &submitRes)
+	if err == nil {
+		t.Fatalf("expected submitblock BIP22 result string to be treated as rejection")
+	}
+	if !strings.Contains(err.Error(), "bad-cb-amount") {
+		t.Fatalf("expected rejection reason in error, got %v", err)
+	}
+	if got := rpc.submitCalls.Load(); got != 1 {
+		t.Fatalf("expected no retry for validation rejection, got %d calls", got)
 	}
 }
 
