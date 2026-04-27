@@ -55,7 +55,10 @@ func (mc *MinerConn) processShare(task submissionTask, ctx shareContext) {
 	nonce := task.nonce
 	versionHex := task.versionHex
 
-	assignedDiff := mc.assignedDifficulty(jobID)
+	assignedDiff := task.assignedDifficulty
+	if assignedDiff <= 0 {
+		assignedDiff = mc.assignedDifficulty(jobID)
+	}
 	currentDiff := mc.currentDifficulty()
 	creditedDiff := assignedDiff
 	if creditedDiff <= 0 {
@@ -155,24 +158,25 @@ func (mc *MinerConn) processShare(task submissionTask, ctx shareContext) {
 		detail = mc.buildShareDetailFromCoinbase(job, ctx.cbTx)
 	}
 
-		if ctx.isBlock {
-			mc.noteValidSubmit(now)
-			mc.handleBlockShare(reqID, job, workerName, (&task).extranonce2Decoded(), uint32ToHex8Lower(task.ntimeVal), uint32ToHex8Lower(task.nonceVal), task.useVersion, ctx.hashHex, ctx.shareDiff, now)
-			mc.trackBestShare(workerName, shareHash, ctx.shareDiff, now)
-			mc.maybeUpdateSavedWorkerMinuteBestDiff(ctx.shareDiff, now)
-			mc.maybeUpdateSavedWorkerBestDiff(ctx.shareDiff)
-			return
-		}
-
+	if ctx.isBlock {
 		mc.noteValidSubmit(now)
-		mc.recordShare(workerName, true, creditedDiff, ctx.shareDiff, "", shareHash, detail, now)
+		mc.handleBlockShare(reqID, job, task.jobID, workerName, (&task).extranonce2Decoded(), uint32ToHex8Lower(task.ntimeVal), uint32ToHex8Lower(task.nonceVal), task.useVersion, task.scriptTime, ctx.hashHex, ctx.shareDiff, now)
 		mc.trackBestShare(workerName, shareHash, ctx.shareDiff, now)
 		mc.maybeUpdateSavedWorkerMinuteBestDiff(ctx.shareDiff, now)
 		mc.maybeUpdateSavedWorkerBestDiff(ctx.shareDiff)
+		return
+	}
+
+	mc.noteValidSubmit(now)
+	mc.recordShare(workerName, true, creditedDiff, ctx.shareDiff, "", shareHash, detail, now)
 
 	// Respond first; any vardiff adjustment and follow-up notify can happen after
 	// the submit is acknowledged to minimize perceived submit latency.
 	mc.writeTrueResponse(reqID)
+
+	mc.trackBestShare(workerName, shareHash, ctx.shareDiff, now)
+	mc.maybeUpdateSavedWorkerMinuteBestDiff(ctx.shareDiff, now)
+	mc.maybeUpdateSavedWorkerBestDiff(ctx.shareDiff)
 
 	if mc.maybeAdjustDifficulty(now) {
 		mc.sendNotifyFor(job, true)

@@ -55,3 +55,28 @@ func TestHandleGetTransactions_EmptyParamsUsesLastJob(t *testing.T) {
 		t.Fatalf("expected txids from last job, got: %q", out)
 	}
 }
+
+func TestHandleGetTransactions_ReturnsTxidsForStratumNotifyJobID(t *testing.T) {
+	mc, notifyConn := minerConnForNotifyTest(t)
+	job := benchmarkSubmitJobForTest(t)
+	job.Transactions = []GBTTransaction{
+		{Txid: "dd"},
+		{Txid: "ee"},
+	}
+
+	mc.sendNotifyFor(job, true)
+	ids := notifyJobIDsFromOutput(t, notifyConn.String())
+	if len(ids) != 1 {
+		t.Fatalf("expected one notify id, got %#v", ids)
+	}
+
+	respConn := &writeRecorderConn{}
+	mc.conn = respConn
+	req := &StratumRequest{ID: 1, Method: "mining.get_transactions", Params: []any{ids[0]}}
+	mc.handleGetTransactions(req)
+
+	out := respConn.String()
+	if !strings.Contains(out, "\"result\":[\"dd\",\"ee\"]") {
+		t.Fatalf("expected txids for emitted stratum job id, got: %q", out)
+	}
+}

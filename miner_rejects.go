@@ -614,19 +614,22 @@ func (mc *MinerConn) updateHashrateLocked(targetDiff float64, shareTime time.Tim
 	}
 }
 
-func (mc *MinerConn) trackJob(job *Job, clean bool) {
+func (mc *MinerConn) trackJob(job *Job, stratumJobID string, clean bool) {
+	if stratumJobID == "" {
+		stratumJobID = job.JobID
+	}
 	mc.jobMu.Lock()
 	defer mc.jobMu.Unlock()
 	// No longer clear old jobs on clean - preserve them for miners with latency
 	// The eviction logic below will handle cleanup when we exceed maxRecentJobs
-	if _, ok := mc.activeJobs[job.JobID]; !ok {
-		mc.jobOrder = append(mc.jobOrder, job.JobID)
+	if _, ok := mc.activeJobs[stratumJobID]; !ok {
+		mc.jobOrder = append(mc.jobOrder, stratumJobID)
 	}
-	// Note: Don't clear shareCache on job re-send - coinbase is stable for a
-	// given job (payouts configured at boot). Clearing would allow duplicate
-	// shares after difficulty changes, wasting miner work.
-	mc.activeJobs[job.JobID] = job
+	// Note: don't clear shareCache on clean sends. Each notify has its own
+	// Stratum job id, so repeated clean sends can coexist for late shares.
+	mc.activeJobs[stratumJobID] = job
 	mc.lastJob = job
+	mc.lastJobID = stratumJobID
 	mc.lastJobPrevHash = job.Template.Previous
 	mc.lastJobHeight = job.Template.Height
 	mc.lastClean = clean
@@ -639,7 +642,7 @@ func (mc *MinerConn) trackJob(job *Job, clean bool) {
 		if slack <= 0 {
 			slack = defaultShareNTimeMaxForwardSeconds
 		}
-		mc.jobNTimeBounds[job.JobID] = jobNTimeBounds{
+		mc.jobNTimeBounds[stratumJobID] = jobNTimeBounds{
 			min: minNTime,
 			max: minNTime + int64(slack),
 		}
@@ -717,6 +720,14 @@ func (mc *MinerConn) jobForIDWithLast(jobID string) (job *Job, lastJob *Job, las
 	}
 	if mc.jobScriptTime != nil {
 		scriptTime = mc.jobScriptTime[jobID]
+	}
+	if !ok && mc.lastJobID != "" {
+		if mc.cfg.ShareCheckNTimeWindow && mc.jobNTimeBounds != nil {
+			ntimeBounds = mc.jobNTimeBounds[mc.lastJobID]
+		}
+		if mc.jobScriptTime != nil {
+			scriptTime = mc.jobScriptTime[mc.lastJobID]
+		}
 	}
 	return job, mc.lastJob, mc.lastJobPrevHash, mc.lastJobHeight, ntimeBounds, scriptTime, ok
 }

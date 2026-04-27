@@ -85,7 +85,8 @@ func TestQuantizeDifficultyGranularity(t *testing.T) {
 	}{
 		{name: "pow2_only", diff: 2.3, granularity: 1, want: 2.0},
 		{name: "half_steps", diff: 2.3, granularity: 2, want: 2.0},
-		{name: "quarter_steps_default", diff: 2.3, granularity: 4, want: 2.378414230005442},
+		{name: "quarter_steps", diff: 2.3, granularity: 4, want: 2.378414230005442},
+		{name: "tenth_steps_default", diff: 2.3, granularity: defaultDifficultyStepGranularity, want: 2.29739670999407},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

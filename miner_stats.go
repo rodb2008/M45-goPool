@@ -206,7 +206,6 @@ func (mc *MinerConn) dynamicWindowStartLagPercentLocked(now time.Time) int {
 // display/detail). They may differ when vardiff changed between notify and
 // submit; we always want hashrate to use the assigned target.
 func (mc *MinerConn) recordShare(worker string, accepted bool, creditedDiff float64, shareDiff float64, reason string, shareHash string, detail *ShareDetail, now time.Time) {
-	// Send update to async stats worker instead of blocking on mutex
 	update := statsUpdate{
 		worker:       worker,
 		accepted:     accepted,
@@ -218,16 +217,29 @@ func (mc *MinerConn) recordShare(worker string, accepted bool, creditedDiff floa
 		timestamp:    now,
 	}
 
-	select {
-	case mc.statsUpdates <- update:
-		// Successfully queued for async processing
-	default:
-		// Channel full, process synchronously as fallback
+	if !mc.queueStatsUpdate(update) {
 		mc.recordShareSync(update)
 	}
 
 	if mc.metrics != nil {
 		mc.metrics.RecordShare(accepted, reason)
+	}
+}
+
+func (mc *MinerConn) queueStatsUpdate(update statsUpdate) (queued bool) {
+	if mc.statsUpdates == nil {
+		return false
+	}
+	defer func() {
+		if recover() != nil {
+			queued = false
+		}
+	}()
+	select {
+	case mc.statsUpdates <- update:
+		return true
+	default:
+		return false
 	}
 }
 

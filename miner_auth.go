@@ -62,145 +62,6 @@ func (mc *MinerConn) handleSubscribe(req *StratumRequest) {
 	mc.handleSubscribeID(req.ID, clientID, haveClientID, sessionID, haveSessionID)
 }
 
-func (mc *MinerConn) handleSubscribeRawID(idRaw []byte, clientID string, haveClientID bool, sessionID string, haveSessionID bool) {
-	idVal, _, ok := parseJSONValue(idRaw, 0)
-	if !ok {
-		return
-	}
-
-	// Ignore duplicate subscribe requests - should only subscribe once
-	if mc.subscribed {
-		logger.Debug("subscribe rejected: already subscribed", "component", "miner", "kind", "protocol", "remote", mc.id)
-		mc.writeResponse(StratumResponse{
-			ID:     idVal,
-			Result: nil,
-			Error:  newStratumError(stratumErrCodeInvalidRequest, "already subscribed"),
-		})
-		return
-	}
-
-	if haveClientID {
-		// Validate client ID length to prevent abuse
-		if len(clientID) > maxMinerClientIDLen {
-			logger.Warn("subscribe rejected: client identifier too long", "component", "miner", "kind", "protocol", "remote", mc.id, "len", len(clientID))
-			mc.writeResponse(StratumResponse{
-				ID:     idVal,
-				Result: nil,
-				Error:  newStratumError(stratumErrCodeInvalidRequest, "client identifier too long"),
-			})
-			mc.Close("client identifier too long")
-			return
-		}
-		if clientID != "" {
-			// Best-effort split into name/version for nicer aggregation.
-			name, ver := parseMinerID(clientID)
-			mc.stateMu.Lock()
-			mc.minerType = clientID
-			if name != "" {
-				mc.minerClientName = name
-			}
-			if ver != "" {
-				mc.minerClientVersion = ver
-			}
-			mc.stateMu.Unlock()
-			if mc.minerTypeBanned(clientID, name) {
-				logger.Warn("subscribe rejected: banned miner type",
-					"component", "miner", "kind", "ban",
-					"remote", mc.id,
-					"miner_type", clientID,
-					"miner_name", name,
-				)
-				mc.writeResponse(StratumResponse{
-					ID:     idVal,
-					Result: nil,
-					Error:  newStratumError(stratumErrCodeInvalidRequest, "banned miner type"),
-				})
-				mc.Close("banned miner type")
-				return
-			}
-		}
-	}
-
-	if haveSessionID {
-		mc.stateMu.Lock()
-		if mc.sessionID == "" {
-			mc.sessionID = strings.TrimSpace(sessionID)
-		}
-		mc.stateMu.Unlock()
-	}
-
-	// Ensure a stable per-connection session ID is available for the subscribe
-	// response. Some miners send it back as params[1] on reconnect.
-	mc.assignConnectionSeq()
-	if haveSessionID {
-		mc.stateMu.Lock()
-		if mc.sessionID == "" {
-			mc.sessionID = strings.TrimSpace(sessionID)
-		}
-		mc.stateMu.Unlock()
-	} else {
-		mc.stateMu.Lock()
-		if mc.sessionID == "" {
-			mc.sessionID = mc.connectionIDString()
-		}
-		mc.stateMu.Unlock()
-	}
-
-	mc.subscribed = true
-
-	ex1 := mc.extranonce1Hex
-	en2Size := mc.cfg.Extranonce2Size
-	if en2Size <= 0 {
-		en2Size = 4
-	}
-
-	mc.writeSubscribeResponseRawID(idRaw, ex1, en2Size, mc.currentSessionID())
-
-	// Support authorize-before-subscribe: if the miner already authorized,
-	// start the listener and schedule initial work now that subscribe is done.
-	if mc.authorized {
-		if !mc.listenerOn {
-			if mc.jobCh != nil {
-				for {
-					select {
-					case <-mc.jobCh:
-					default:
-						goto drained
-					}
-				}
-			}
-		drained:
-			mc.listenerOn = true
-			if mc.jobCh != nil {
-				go mc.listenJobs()
-			}
-		}
-		if mc.jobMgr != nil {
-			mc.scheduleInitialWork()
-		}
-	}
-
-	initialJob := mc.jobMgr.CurrentJob()
-	if initialJob != nil {
-		mc.updateVersionMask(initialJob.VersionMask)
-	}
-	if mc.extranonceSubscribed {
-		mc.sendSetExtranonce(ex1, en2Size)
-	}
-	if initialJob == nil {
-		status := mc.jobMgr.FeedStatus()
-		fields := []any{"remote", mc.id, "reason", "no job available"}
-		if status.LastError != nil {
-			fields = append(fields, "job_error", status.LastError.Error())
-		}
-		if !status.LastSuccess.IsZero() {
-			fields = append(fields, "last_job_at", status.LastSuccess)
-		}
-		fields = append([]any{"component", "miner", "kind", "job_state"}, fields...)
-		logger.Info("miner subscribed but no job ready", fields...)
-	}
-}
-
 func (mc *MinerConn) handleSubscribeID(id any, clientID string, haveClientID bool, sessionID string, haveSessionID bool) {
 	// Ignore duplicate subscribe requests - should only subscribe once
 	if mc.subscribed {
@@ -1054,6 +915,24 @@ func (mc *MinerConn) maybeSendCleanJobAfterSuggest() {
 	}
 }
 
+func stratumNotifyJobID(base string, seq uint64) string {
+	base = strings.TrimSpace(base)
+	if seq > 0 {
+		seq--
+	}
+	suffix := "-" + encodeBase58Uint64(seq)
+	if base == "" {
+		return strings.TrimPrefix(suffix, "-")
+	}
+	if len(base)+len(suffix) <= maxJobIDLen {
+		return base + suffix
+	}
+	if len(suffix) >= maxJobIDLen {
+		return suffix[len(suffix)-maxJobIDLen:]
+	}
+	return base[:maxJobIDLen-len(suffix)] + suffix
+}
+
 // difficultyFromTargetHex converts a target hex string to difficulty.
 // difficulty = diff1Target / target
 func difficultyFromTargetHex(targetHex string) (float64, bool) {
@@ -1267,8 +1146,9 @@ func (mc *MinerConn) sendNotifyFor(job *Job, forceClean bool) {
 	if mc.jobScriptTime == nil {
 		mc.jobScriptTime = make(map[string]int64, mc.maxRecentJobs)
 	}
+	stratumJobID := stratumNotifyJobID(job.JobID, seq)
 	uniqueScriptTime := job.ScriptTime + int64(seq)
-	mc.jobScriptTime[job.JobID] = uniqueScriptTime
+	mc.jobScriptTime[stratumJobID] = uniqueScriptTime
 	mc.jobMu.Unlock()
 
 	worker := mc.currentWorker()
@@ -1354,7 +1234,7 @@ func (mc *MinerConn) sendNotifyFor(job *Job, forceClean bool) {
 	if mc.jobNotifyCoinbase == nil {
 		mc.jobNotifyCoinbase = make(map[string]notifiedCoinbaseParts, mc.maxRecentJobs)
 	}
-	mc.jobNotifyCoinbase[job.JobID] = notifiedCoinbaseParts{coinb1: coinb1, coinb2: coinb2}
+	mc.jobNotifyCoinbase[stratumJobID] = notifiedCoinbaseParts{coinb1: coinb1, coinb2: coinb2}
 	mc.jobMu.Unlock()
 
 	prevhashLE := hexToLEHex(job.PrevHash)
@@ -1363,8 +1243,8 @@ func (mc *MinerConn) sendNotifyFor(job *Job, forceClean bool) {
 	// clean_jobs should only be true when the template actually changed (prevhash/height)
 	// unless we're forcing a clean notify to pair with a difficulty change.
 	cleanJobs := forceClean || (job.Clean && mc.cleanFlagFor(job))
-	mc.trackJob(job, cleanJobs)
-	mc.setJobDifficulty(job.JobID, mc.currentDifficulty())
+	mc.trackJob(job, stratumJobID, cleanJobs)
+	mc.setJobDifficulty(stratumJobID, mc.currentDifficulty())
 
 	// Stratum notify shape per docs/protocols/stratum-v1.mediawiki:
 	// [job_id, prevhash, coinb1, coinb2, merkle_branch[], version, nbits, ntime, clean_jobs].
@@ -1375,7 +1255,7 @@ func (mc *MinerConn) sendNotifyFor(job *Job, forceClean bool) {
 	ntimeBE := uint32ToBEHex(uint32(job.Template.CurTime))
 
 	params := []any{
-		job.JobID,
+		stratumJobID,
 		prevhashLE,
 		coinb1,
 		coinb2,
@@ -1390,7 +1270,8 @@ func (mc *MinerConn) sendNotifyFor(job *Job, forceClean bool) {
 		merkleRoot := computeMerkleRootBE(coinb1, coinb2, job.MerkleBranches)
 		headerHashLE := headerHashFromNotify(prevhashLE, merkleRoot, uint32(job.Template.Version), job.Template.Bits, job.Template.CurTime)
 		logger.Debug("notify payload",
-			"job", job.JobID,
+			"job", stratumJobID,
+			"template_job", job.JobID,
 			"prevhash", prevhashLE,
 			"coinb1", coinb1,
 			"coinb2", coinb2,

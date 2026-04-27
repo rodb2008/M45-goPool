@@ -18,6 +18,21 @@ func TestSnapshotShareInfo_WorkStartShowsLiveElapsedWhileAwaitingFirstShare(t *t
 	}
 }
 
+func TestRecordShareFallsBackWhenStatsChannelClosed(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	mc := &MinerConn{
+		statsUpdates: make(chan statsUpdate),
+	}
+	close(mc.statsUpdates)
+
+	mc.recordShare("worker", true, 1, 2, "", "hash", nil, now)
+
+	stats := mc.snapshotStats()
+	if stats.Accepted != 1 || stats.WindowAccepted != 1 || stats.WindowSubmissions != 1 || stats.TotalDifficulty != 1 {
+		t.Fatalf("recordShare did not fall back synchronously after closed stats channel: %+v", stats)
+	}
+}
+
 func TestEnsureWindowLocked_DoesNotResetByVardiffCadence(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	mc := &MinerConn{

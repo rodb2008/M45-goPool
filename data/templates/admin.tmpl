@@ -205,7 +205,7 @@
 						<div class="label"><label class="label" style="font-weight:500;margin:0;display:flex;align-items:center;gap:8px;"><input type="checkbox" name="enforce_suggested_difficulty_limits" value="1" {{if .Settings.EnforceSuggestedDifficultyLimits}}checked{{end}}><span>enforce_suggested_difficulty_limits</span></label><div class="label-note">Reject/ban suggested difficulties outside configured min/max bounds. Applies on live apply.</div></div>
 					</div>
 					<div>
-						<div class="label">difficulty_step_granularity<div class="label-note">Difficulty quantization granularity for mining.set_difficulty (1=power-of-two, 2=half, 3=third, 4=quarter). Applies on live apply.</div></div>
+						<div class="label">difficulty_step_granularity<div class="label-note">Difficulty quantization granularity for mining.set_difficulty (1=power-of-two, 4=quarter, 10=tenth-step default). Applies on live apply.</div></div>
 						<input name="difficulty_step_granularity" type="number" min="1" class="textfield" value="{{.Settings.DifficultyStepGranularity}}">
 					</div>
 				</div>
@@ -459,7 +459,7 @@
 		<div class="card">
 			<div class="label">Reload UI assets</div>
 			<p class="text-sm" style="margin:4px 0 10px 0;">
-				Reloads HTML templates and cached static files from disk without restarting the pool.
+				Re-parses embedded HTML templates and refreshes the embedded static cache without restarting the pool.
 			</p>
 			{{if .AdminReloadError}}
 			<p class="text-sm" style="color:#f88d8d;">{{.AdminReloadError}}</p>

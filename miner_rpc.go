@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -57,6 +58,18 @@ func (mc *MinerConn) submitBlockWithFastRetry(job *Job, workerName, hashHex, blo
 		cancel()
 
 		if err == nil {
+			if resultErr := submitBlockResultError(submitRes); resultErr != nil {
+				if blockAccepted() {
+					logger.Warn("submitblock returned rejection but block is in chain; treating as success",
+						"attempts", attempt,
+						"worker", mc.minerName(workerName),
+						"hash", hashHex,
+						"result", resultErr.Error(),
+					)
+					return nil
+				}
+				return resultErr
+			}
 			if attempt > 1 {
 				logger.Info("submitblock succeeded after retries",
 					"attempts", attempt,
@@ -116,5 +129,20 @@ func (mc *MinerConn) submitBlockWithFastRetry(job *Job, workerName, hashHex, blo
 		}
 
 		time.Sleep(retryInterval)
+	}
+}
+
+func submitBlockResultError(submitRes *any) error {
+	if submitRes == nil || *submitRes == nil {
+		return nil
+	}
+	switch v := (*submitRes).(type) {
+	case string:
+		if v == "" {
+			return nil
+		}
+		return fmt.Errorf("submitblock rejected: %s", v)
+	default:
+		return fmt.Errorf("submitblock returned unexpected result %T: %v", *submitRes, *submitRes)
 	}
 }

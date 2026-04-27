@@ -68,10 +68,8 @@ Both values appear on the status page and JSON endpoints so you can verify the e
 | `-debug-log <path>` | Override debug log file path. |
 | `-net-debug-log <path>` | Override net-debug log file path. |
 | `-max-conns <n>` | Override max concurrent miner connections (`-1` keeps configured value). |
-| `-safe-mode <true|false>` | Force conservative compatibility/safety settings (can disable fast-path tuning and automatic bans). |
+| `-safe-mode <true|false>` | Force conservative compatibility/safety settings (can disable automatic bans). |
 | `-ckpool-emulate <true|false>` | Override CKPool-style Stratum subscribe response shape. |
-| `-stratum-fast-decode <true|false>` | Override fast-path Stratum decode/sniffing behavior. |
-| `-stratum-fast-encode <true|false>` | Override fast-path Stratum response encoding behavior. |
 | `-stratum-tcp-read-buffer <bytes>` | Override Stratum TCP read buffer bytes (`0` uses OS default). |
 | `-stratum-tcp-write-buffer <bytes>` | Override Stratum TCP write buffer bytes (`0` uses OS default). |
 | `-secrets <path>` | Point to an alternate `secrets.toml`; the file is not rewritten. |
@@ -99,8 +97,8 @@ The required `data/config/config.toml` is the primary interface for pool behavio
 - `[branding]`: Styling and branding options shown in the status UI (tagline, pool donation link, location string).
 - `[stratum]`: `stratum_tls_listen` for TLS-enabled Stratum (leave blank to disable secure Stratum), plus `stratum_password_enabled`/`stratum_password` to require a shared password on `mining.authorize`, and `stratum_password_public` to show the password on the public connect panel.
 - `policy.toml [stratum]`: `ckpool_emulate` controls CKPool-style subscribe response compatibility.
-- `tuning.toml [stratum]`: `fast_decode_enabled`, `fast_encode_enabled`, `tcp_read_buffer_bytes`, and `tcp_write_buffer_bytes` control Stratum fast-path and socket buffer tuning.
-- Optional runtime overrides (temporary): `-ckpool-emulate`, `-stratum-fast-decode`, `-stratum-fast-encode`, `-stratum-tcp-read-buffer`, and `-stratum-tcp-write-buffer`.
+- `tuning.toml [stratum]`: `tcp_read_buffer_bytes` and `tcp_write_buffer_bytes` control Stratum socket buffer tuning.
+- Optional runtime overrides (temporary): `-ckpool-emulate`, `-stratum-tcp-read-buffer`, and `-stratum-tcp-write-buffer`.
 - `[node]`: `rpc_url`, `rpc_cookie_path`, and ZMQ addresses (`zmq_hashblock_addr`/`zmq_rawblock_addr`).
 - `[mining]`: Pool fee, donation settings, and `pooltag_prefix`.
 - `[logging]`: `debug` enables verbose runtime logging, and `net_debug` enables raw network tracing (`net-debug.log`) when debug logging is active.
@@ -117,7 +115,7 @@ Optional split override files can layer advanced settings without touching the m
 - `[timeouts]`: `connection_timeout_seconds`.
 - `[mining]` in `policy.toml`: share-validation policy toggles (`share_*` settings) plus `submit_process_inline`.
 - `[difficulty]`: `default_difficulty` fallback when no suggestion arrives, `max_difficulty`/`min_difficulty` clamps (0 disables a clamp), whether to lock miner-suggested difficulty, and whether to enforce min/max on suggested difficulty (ban/disconnect when outside limits). The first `mining.suggest_*` is honored once per connection, triggers a clean notify, and subsequent suggests are ignored.
-- `[mining]`: `extranonce2_size`, `template_extra_nonce2_size`, `job_entropy`, `coinbase_scriptsig_max_bytes`, `disable_pool_job_entropy` to remove the `<pool_entropy>-<job_entropy>` suffix, and `difficulty_step_granularity` to control difficulty quantization precision (`1` power-of-two, `2` half-step, `3` third-step, `4` quarter-step default).
+- `[mining]`: `extranonce2_size`, `template_extra_nonce2_size`, `job_entropy`, `coinbase_scriptsig_max_bytes`, `disable_pool_job_entropy` to remove the `<pool_entropy>-<job_entropy>` suffix, and `difficulty_step_granularity` to control difficulty quantization precision (`1` power-of-two, `4` quarter-step, `10` tenth-step default).
 - `[hashrate]`: `hashrate_ema_tau_seconds`, `share_ntime_max_forward_seconds`.
 - `[peer_cleaning]`: Enable/disable peer cleanup and tune thresholds.
 - `[bans]`: Ban thresholds/durations, `banned_miner_types` (disconnect miners by client ID on subscribe), and `clean_expired_on_startup` (defaults to `true`). Prefer `data/config/miner_blacklist.json` for client ID blacklist management; it overrides `banned_miner_types` when present. Set `clean_expired_on_startup = false` if you want to keep expired bans for inspection.
@@ -292,7 +290,7 @@ Each override value logs when set, so goPool operators can audit what changed vi
 
 ## Runtime operations
 
-- **SIGUSR1** reloads the HTML templates under `data/templates/`. Errors (parse failures, missing files) are logged but the previous template set remains active so the site keeps serving—check `pool.log` if pages look odd after a reload.
+- **SIGUSR1** re-parses the embedded HTML templates and refreshes the embedded static cache. Errors are logged but the previous template set remains active so the site keeps serving—check `pool.log` if pages look odd after a reload.
 - **SIGUSR2** reloads `config.toml`, `secrets.toml`, `services.toml`, `policy.toml`, `tuning.toml`, and `version_bits.toml`, reapplies overrides, and updates the status server with the new config.
 - **Shutdown** occurs on `SIGINT`/`SIGTERM`. goPool stops the status servers, Stratum listener, and pending replayers gracefully.
 - **TLS cert reloading** uses `certReloader` to monitor `data/tls_cert.pem`/`tls_key.pem` hourly. Certificate renewals (e.g., via certbot) are picked up without restarts.

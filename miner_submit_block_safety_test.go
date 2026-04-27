@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -12,6 +15,7 @@ import (
 
 type countingSubmitRPC struct {
 	submitCalls atomic.Int64
+	blockHex    string
 }
 
 func (c *countingSubmitRPC) call(method string, params any, out any) error {
@@ -21,8 +25,33 @@ func (c *countingSubmitRPC) call(method string, params any, out any) error {
 func (c *countingSubmitRPC) callCtx(_ context.Context, method string, params any, out any) error {
 	if method == "submitblock" {
 		c.submitCalls.Add(1)
+		if p, ok := params.([]any); ok && len(p) > 0 {
+			if blockHex, ok := p[0].(string); ok {
+				c.blockHex = blockHex
+			}
+		}
 	}
 	return nil
+}
+
+type rejectingSubmitRPC struct {
+	submitCalls atomic.Int64
+	result      any
+}
+
+func (r *rejectingSubmitRPC) callCtx(_ context.Context, method string, _ any, out any) error {
+	switch method {
+	case "submitblock":
+		r.submitCalls.Add(1)
+		if dst, ok := out.(*any); ok {
+			*dst = r.result
+		}
+		return nil
+	case "getblockheader":
+		return errors.New("block not found")
+	default:
+		return nil
+	}
 }
 
 func flushFoundBlockLog(t *testing.T) {
@@ -37,6 +66,26 @@ func flushFoundBlockLog(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatalf("timed out waiting for found block log flush")
+	}
+}
+
+func TestSubmitBlockResultStringIsRejection(t *testing.T) {
+	rpc := &rejectingSubmitRPC{result: "bad-cb-amount"}
+	mc := &MinerConn{
+		id:  "submitblock-result-test",
+		rpc: rpc,
+	}
+
+	var submitRes any
+	err := mc.submitBlockWithFastRetry(&Job{Template: GetBlockTemplateResult{Height: 1}}, "worker", strings.Repeat("0", 64), "deadbeef", &submitRes)
+	if err == nil {
+		t.Fatalf("expected submitblock BIP22 result string to be treated as rejection")
+	}
+	if !strings.Contains(err.Error(), "bad-cb-amount") {
+		t.Fatalf("expected rejection reason in error, got %v", err)
+	}
+	if got := rpc.submitCalls.Load(); got != 1 {
+		t.Fatalf("expected no retry for validation rejection, got %d calls", got)
 	}
 }
 
@@ -79,7 +128,6 @@ func TestWinningBlockNotRejectedAsDuplicate(t *testing.T) {
 	if dup := mc.isDuplicateShare(jobID, (&task).extranonce2Decoded(), task.ntimeVal, task.nonceVal, task.useVersion); dup {
 		t.Fatalf("unexpected duplicate when seeding cache")
 	}
-
 	mc.conn = nopConn{}
 	mc.processSubmissionTask(task)
 	flushFoundBlockLog(t)
@@ -212,6 +260,9 @@ func TestWinningBlockUsesNotifiedScriptTime(t *testing.T) {
 		scriptTime:       notifiedScriptTime,
 		receivedAt:       time.Unix(1700000000, 0),
 	}
+	// Simulate a clean re-notify for the same underlying template after the
+	// share was parsed. Block submission must still use task.scriptTime.
+	mc.jobScriptTime[jobID] = job.ScriptTime
 
 	mc.conn = nopConn{}
 	mc.processSubmissionTask(task)
@@ -220,6 +271,20 @@ func TestWinningBlockUsesNotifiedScriptTime(t *testing.T) {
 	rpc := mc.rpc.(*countingSubmitRPC)
 	if got := rpc.submitCalls.Load(); got != 1 {
 		t.Fatalf("expected submitblock to be called once, got %d", got)
+	}
+	expectedBlockHex, _, _, _, err := buildBlockWithScriptTime(job, mc.extranonce1, ex2, ntimeHex, chosenNonce, int32(useVersion), payoutScript, notifiedScriptTime)
+	if err != nil {
+		t.Fatalf("build expected notified block: %v", err)
+	}
+	fallbackBlockHex, _, _, _, err := buildBlockWithScriptTime(job, mc.extranonce1, ex2, ntimeHex, chosenNonce, int32(useVersion), payoutScript, job.ScriptTime)
+	if err != nil {
+		t.Fatalf("build fallback block: %v", err)
+	}
+	if rpc.blockHex != expectedBlockHex {
+		t.Fatalf("submitted block did not use notified scriptTime")
+	}
+	if rpc.blockHex == fallbackBlockHex {
+		t.Fatalf("submitted block used fallback scriptTime")
 	}
 }
 
@@ -265,6 +330,103 @@ func TestBlockBypassesPolicyRejects(t *testing.T) {
 	rpc := mc.rpc.(*countingSubmitRPC)
 	if got := rpc.submitCalls.Load(); got != 1 {
 		t.Fatalf("expected submitblock to be called once, got %d", got)
+	}
+}
+
+func TestSubmitBlockMatchesNotifyPayload(t *testing.T) {
+	mc, notifyConn := minerConnForNotifyTest(t)
+	mc.cfg.DataDir = t.TempDir()
+	mc.cfg.SubmitProcessInline = true
+	rpc := &countingSubmitRPC{}
+	mc.rpc = rpc
+
+	job := benchmarkSubmitJobForTest(t)
+	job.Target = new(big.Int).Set(maxUint256)
+	const rawTxHex = "0100000001" +
+		"0000000000000000000000000000000000000000000000000000000000000000" +
+		"ffffffff00ffffffff0101000000000000000000000000"
+	rawTx, err := hex.DecodeString(rawTxHex)
+	if err != nil {
+		t.Fatalf("decode raw tx: %v", err)
+	}
+	txid := reverseBytes(doubleSHA256(rawTx))
+	job.MerkleBranches = buildMerkleBranches([][]byte{txid})
+	job.Transactions = []GBTTransaction{{Data: rawTxHex, Txid: hex.EncodeToString(txid)}}
+
+	mc.sendNotifyFor(job, true)
+	notifies := notifyMessagesFromOutput(t, notifyConn.String())
+	if len(notifies) != 1 {
+		t.Fatalf("expected one notify, got %d", len(notifies))
+	}
+	params := notifies[0].Params
+	if len(params) < 9 {
+		t.Fatalf("notify params too short: %#v", params)
+	}
+	stratumJobID := params[0].(string)
+	prevhashLE := params[1].(string)
+	coinb1 := params[2].(string)
+	coinb2 := params[3].(string)
+	branches := params[4].([]any)
+	versionHex := params[5].(string)
+	bitsHex := params[6].(string)
+	ntimeHex := params[7].(string)
+	if len(branches) != len(job.MerkleBranches) || branches[0] != job.MerkleBranches[0] {
+		t.Fatalf("notify merkle branches got %#v want %#v", branches, job.MerkleBranches)
+	}
+	if prevhashLE != hexToLEHex(job.PrevHash) {
+		t.Fatalf("notify prevhash got %q want %q", prevhashLE, hexToLEHex(job.PrevHash))
+	}
+	if bitsHex != job.Template.Bits {
+		t.Fatalf("notify bits got %q want %q", bitsHex, job.Template.Bits)
+	}
+	version, err := parseUint32BEHex(versionHex)
+	if err != nil {
+		t.Fatalf("parse notify version: %v", err)
+	}
+
+	en2Hex := "00000000"
+	coinbaseHex := coinb1 + hex.EncodeToString(mc.extranonce1) + en2Hex + coinb2
+	coinbaseBytes, err := hex.DecodeString(coinbaseHex)
+	if err != nil {
+		t.Fatalf("decode notify coinbase: %v", err)
+	}
+	coinbaseTxID := doubleSHA256(coinbaseBytes)
+	merkleRoot := computeMerkleRootFromBranches(coinbaseTxID, job.MerkleBranches)
+	nonceHex := "00000000"
+	expectedHeader, err := job.buildBlockHeader(merkleRoot, ntimeHex, nonceHex, int32(version))
+	if err != nil {
+		t.Fatalf("build expected header: %v", err)
+	}
+
+	mc.handleSubmit(&StratumRequest{
+		ID:     1,
+		Method: "mining.submit",
+		Params: []any{mc.currentWorker(), stratumJobID, en2Hex, ntimeHex, nonceHex},
+	})
+	flushFoundBlockLog(t)
+
+	if got := rpc.submitCalls.Load(); got != 1 {
+		t.Fatalf("expected submitblock to be called once, got %d", got)
+	}
+	blockBytes, err := hex.DecodeString(rpc.blockHex)
+	if err != nil {
+		t.Fatalf("decode submitted block: %v", err)
+	}
+	if len(blockBytes) <= 81 {
+		t.Fatalf("submitted block too short: %d bytes", len(blockBytes))
+	}
+	if !bytes.Equal(blockBytes[:80], expectedHeader) {
+		t.Fatalf("submitted block header does not match notify payload")
+	}
+	if blockBytes[80] != 2 {
+		t.Fatalf("expected two transactions in submitted block, got varint byte %#x", blockBytes[80])
+	}
+	var expectedPayload bytes.Buffer
+	expectedPayload.WriteByte(2)
+	expectedPayload.Write(coinbaseBytes)
+	expectedPayload.Write(rawTx)
+	if !bytes.Equal(blockBytes[80:], expectedPayload.Bytes()) {
+		t.Fatalf("submitted block payload does not match notify coinbase plus job transactions")
 	}
 }
 
