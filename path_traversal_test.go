@@ -109,3 +109,30 @@ func TestEmbeddedStaticFileServerServesAssets(t *testing.T) {
 		t.Fatalf("expected embedded stylesheet body, got %q", rec.Body.String()[:min(len(rec.Body.String()), 120)])
 	}
 }
+
+func TestHandleStaticFileRejectsUnsupportedMethods(t *testing.T) {
+	staticFS := fstest.MapFS{
+		"privacy.html": &fstest.MapFile{
+			Data: []byte("<html>privacy</html>"),
+			Mode: fs.FileMode(0o644),
+		},
+	}
+	s := &StatusServer{
+		staticFiles: newStaticFileServer(staticFS, http.NotFoundHandler()),
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/privacy", strings.NewReader("x=1"))
+	rec := httptest.NewRecorder()
+
+	s.handleStaticFile("privacy.html").ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status=%d, want %d", rec.Code, http.StatusMethodNotAllowed)
+	}
+	if got := rec.Header().Get("Allow"); got != "GET, HEAD" {
+		t.Fatalf("Allow=%q, want GET, HEAD", got)
+	}
+	if strings.Contains(rec.Body.String(), "privacy") {
+		t.Fatalf("unsupported method served static body: %q", rec.Body.String())
+	}
+}

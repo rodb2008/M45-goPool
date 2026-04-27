@@ -505,6 +505,11 @@ func (s *StatusServer) renderErrorPage(w http.ResponseWriter, r *http.Request, s
 // from embedded static assets. This is used for legal pages like privacy.html and terms.html.
 func (s *StatusServer) handleStaticFile(filename string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		setShortHTMLCacheHeaders(w, false)
 		if s != nil && s.staticFiles != nil {
 			if s.staticFiles.ServePath(w, r, filename) {
