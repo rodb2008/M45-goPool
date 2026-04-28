@@ -217,7 +217,11 @@ func (mc *MinerConn) recordShare(worker string, accepted bool, creditedDiff floa
 		timestamp:    now,
 	}
 
-	if !mc.queueStatsUpdate(update) {
+	queued, closed := mc.queueStatsUpdate(update)
+	if closed {
+		return
+	}
+	if !queued {
 		mc.recordShareSync(update)
 	}
 
@@ -226,20 +230,21 @@ func (mc *MinerConn) recordShare(worker string, accepted bool, creditedDiff floa
 	}
 }
 
-func (mc *MinerConn) queueStatsUpdate(update statsUpdate) (queued bool) {
+func (mc *MinerConn) queueStatsUpdate(update statsUpdate) (queued bool, closed bool) {
 	if mc.statsUpdates == nil {
-		return false
+		return false, false
 	}
 	defer func() {
 		if recover() != nil {
 			queued = false
+			closed = true
 		}
 	}()
 	select {
 	case mc.statsUpdates <- update:
-		return true
+		return true, false
 	default:
-		return false
+		return false, false
 	}
 }
 

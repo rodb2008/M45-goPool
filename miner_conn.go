@@ -18,11 +18,6 @@ var nextConnectionID uint64
 
 func (mc *MinerConn) cleanup() {
 	mc.cleanupOnce.Do(func() {
-		if mc.metrics != nil {
-			if connSeq := atomic.LoadUint64(&mc.connectionSeq); connSeq != 0 {
-				mc.metrics.RemoveConnectionHashrate(connSeq)
-			}
-		}
 		mc.unregisterRegisteredWorker()
 
 		// Close stats channel and wait for worker to finish processing.
@@ -31,6 +26,12 @@ func (mc *MinerConn) cleanup() {
 		if mc.statsUpdates != nil {
 			close(mc.statsUpdates)
 			mc.statsWg.Wait()
+		}
+
+		if mc.metrics != nil {
+			if connSeq := atomic.LoadUint64(&mc.connectionSeq); connSeq != 0 {
+				mc.metrics.RemoveConnectionHashrate(connSeq)
+			}
 		}
 
 		mc.statsMu.Lock()

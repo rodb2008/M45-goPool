@@ -1,6 +1,7 @@
 package main
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -18,7 +19,7 @@ func TestSnapshotShareInfo_WorkStartShowsLiveElapsedWhileAwaitingFirstShare(t *t
 	}
 }
 
-func TestRecordShareFallsBackWhenStatsChannelClosed(t *testing.T) {
+func TestRecordShareDropsWhenStatsChannelClosed(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	mc := &MinerConn{
 		statsUpdates: make(chan statsUpdate),
@@ -28,8 +29,36 @@ func TestRecordShareFallsBackWhenStatsChannelClosed(t *testing.T) {
 	mc.recordShare("worker", true, 1, 2, "", "hash", nil, now)
 
 	stats := mc.snapshotStats()
-	if stats.Accepted != 1 || stats.WindowAccepted != 1 || stats.WindowSubmissions != 1 || stats.TotalDifficulty != 1 {
-		t.Fatalf("recordShare did not fall back synchronously after closed stats channel: %+v", stats)
+	if stats.Accepted != 0 || stats.WindowAccepted != 0 || stats.WindowSubmissions != 0 || stats.TotalDifficulty != 0 {
+		t.Fatalf("recordShare updated stats after closed stats channel: %+v", stats)
+	}
+}
+
+func TestCleanupDropsLateSharesWithoutRestoringPoolHashrate(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	metrics := NewPoolMetrics()
+	mc := &MinerConn{
+		metrics:      metrics,
+		statsUpdates: make(chan statsUpdate),
+	}
+	atomic.StoreUint64(&mc.connectionSeq, 42)
+	mc.initialEMAWindowDone.Store(true)
+	metrics.UpdateConnectionHashrate(42, 12345)
+
+	mc.cleanup()
+	if got := metrics.PoolHashrate(); got != 0 {
+		t.Fatalf("cleanup left pool hashrate=%v, want 0", got)
+	}
+
+	mc.recordShare("worker", true, 1_000_000, 1_000_000, "", "late-1", nil, now)
+	mc.recordShare("worker", true, 1_000_000, 1_000_000, "", "late-2", nil, now.Add(time.Millisecond))
+
+	if got := metrics.PoolHashrate(); got != 0 {
+		t.Fatalf("late shares restored pool hashrate=%v after cleanup, want 0", got)
+	}
+	stats := mc.snapshotStats()
+	if stats.Accepted != 0 || stats.WindowSubmissions != 0 || stats.TotalDifficulty != 0 {
+		t.Fatalf("late shares updated cleaned-up stats: %+v", stats)
 	}
 }
 
