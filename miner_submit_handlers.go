@@ -18,25 +18,3 @@ func (mc *MinerConn) handleSubmit(req *StratumRequest) {
 	ensureSubmissionWorkerPool()
 	submissionWorkers.submit(task)
 }
-
-func (mc *MinerConn) handleSubmitStringParams(id any, params []string) {
-	now := time.Now()
-	task, ok := mc.prepareSubmissionTaskStringParams(id, params, now)
-	if !ok {
-		return
-	}
-	if mc.cfg.SubmitProcessInline {
-		mc.processSubmissionTask(task)
-		return
-	}
-	ensureSubmissionWorkerPool()
-	submissionWorkers.submit(task)
-}
-
-func (mc *MinerConn) prepareSubmissionTaskStringParams(id any, params []string, now time.Time) (submissionTask, bool) {
-	parsed, ok := mc.parseSubmitParamsStrings(id, params, now)
-	if !ok {
-		return submissionTask{}, false
-	}
-	return mc.prepareSubmissionTaskFromParsed(id, parsed, now)
-}

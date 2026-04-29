@@ -26,7 +26,7 @@ func (jm *JobManager) NextExtranonce1() []byte {
 }
 
 func (jm *JobManager) nextJobID() string {
-	id := atomic.AddUint64(&jm.jobIDCounter, 1) - 1
+	id := (atomic.AddUint64(&jm.jobIDCounter, 1) - 1) % jobIDRolloverModulo
 	return encodeBase58Uint64(id)
 }
 

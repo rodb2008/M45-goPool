@@ -65,6 +65,27 @@ func (mc *MinerConn) processShare(task submissionTask, ctx shareContext) {
 		creditedDiff = currentDiff
 	}
 
+	thresholdDiff := assignedDiff
+	if thresholdDiff <= 0 {
+		thresholdDiff = currentDiff
+	}
+
+	if task.hasAlternateVersion {
+		altTask := task
+		altTask.useVersion = task.alternateUseVersion
+		altTask.versionHex = task.alternateVersionHex
+		if altCtx, ok := mc.prepareShareContext(altTask); ok {
+			primaryAcceptable := mc.submissionMeetsAssignedDifficulty(ctx, thresholdDiff, now)
+			alternateAcceptable := mc.submissionMeetsAssignedDifficulty(altCtx, thresholdDiff, now)
+			if preferAlternateSubmissionContext(ctx, altCtx, primaryAcceptable, alternateAcceptable) {
+				task = altTask
+				ctx = altCtx
+				policyReject = task.policyReject
+				versionHex = task.versionHex
+			}
+		}
+	}
+
 	if !ctx.isBlock && policyReject.reason != rejectUnknown {
 		mc.rejectShareWithBan(&StratumRequest{ID: reqID, Method: "mining.submit"}, workerName, policyReject.reason, policyReject.errCode, policyReject.errMsg, now)
 		return
@@ -101,20 +122,7 @@ func (mc *MinerConn) processShare(task submissionTask, ctx shareContext) {
 		return
 	}
 
-	thresholdDiff := assignedDiff
-	if thresholdDiff <= 0 {
-		thresholdDiff = currentDiff
-	}
-	lowDiff := false
-	if !ctx.isBlock && thresholdDiff > 0 {
-		ratio := ctx.shareDiff / thresholdDiff
-		if ratio < 0.98 {
-			if !mc.meetsPrevDiffGrace(ctx.shareDiff, now) {
-				lowDiff = true
-			}
-		}
-	}
-
+	lowDiff := !mc.submissionMeetsAssignedDifficulty(ctx, thresholdDiff, now)
 	if lowDiff {
 		if debugLogging || verboseRuntimeLogging {
 			logger.Info("share rejected",
@@ -204,4 +212,25 @@ func (mc *MinerConn) processShare(task submissionTask, ctx shareContext) {
 			"submit_rate_per_min", subRate,
 		)
 	}
+}
+
+func (mc *MinerConn) submissionMeetsAssignedDifficulty(ctx shareContext, thresholdDiff float64, now time.Time) bool {
+	if ctx.isBlock {
+		return true
+	}
+	if thresholdDiff <= 0 {
+		return true
+	}
+	ratio := ctx.shareDiff / thresholdDiff
+	return ratio >= 0.98 || mc.meetsPrevDiffGrace(ctx.shareDiff, now)
+}
+
+func preferAlternateSubmissionContext(primaryCtx, alternateCtx shareContext, primaryAcceptable, alternateAcceptable bool) bool {
+	if alternateCtx.isBlock && !primaryCtx.isBlock {
+		return true
+	}
+	if primaryCtx.isBlock {
+		return false
+	}
+	return !primaryAcceptable && alternateAcceptable
 }

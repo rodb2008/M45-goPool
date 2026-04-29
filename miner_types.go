@@ -289,6 +289,8 @@ type MinerConn struct {
 	initialWorkScheduled bool
 	initialWorkDue       time.Time
 	initialWorkSent      bool
+	pendingDifficulty    bool
+	pendingVersionMask   bool
 }
 
 type rpcCaller interface {

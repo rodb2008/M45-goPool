@@ -131,24 +131,23 @@ type Config struct {
 	AcceptSteadyStateReconnectWindow  int     // seconds to spread steady-state reconnects
 	StratumMessagesPerMinute          int     // per-connection Stratum messages/min (0 disables)
 
-	MaxRecentJobs                 int
-	ConnectionTimeout             time.Duration
-	VersionMask                   uint32
-	MinVersionBits                int
-	ShareAllowVersionMaskMismatch bool
-	ShareAllowDegradedVersionBits bool
-	BIP110Enabled                 bool
-	VersionBitOverrides           map[uint32]bool
-	VersionMaskConfigured         bool
-	MaxDifficulty                 float64
-	MinDifficulty                 float64
-	DefaultDifficulty             float64
-	TargetSharesPerMin            float64 // vardiff target share rate
-	VarDiffEnabled                bool    // enable dynamic difficulty retargeting
+	MaxRecentJobs                  int
+	ConnectionTimeout              time.Duration
+	VersionMask                    uint32
+	MinVersionBits                 int
+	ShareAllowOutOfMaskVersionBits bool
+	ShareAllowDegradedVersionBits  bool
+	BIP110Enabled                  bool
+	VersionBitOverrides            map[uint32]bool
+	VersionMaskConfigured          bool
+	MaxDifficulty                  float64
+	MinDifficulty                  float64
+	DefaultDifficulty              float64
+	TargetSharesPerMin             float64 // vardiff target share rate
+	VarDiffEnabled                 bool    // enable dynamic difficulty retargeting
 
 	LockSuggestedDifficulty          bool          // keep suggested difficulty instead of vardiff
 	EnforceSuggestedDifficultyLimits bool          // ban/disconnect when suggest_* outside min/max
-	DifficultyStepGranularity        int           // quantize to 2^(k/N) steps; default N=10
 	HashrateEMATauSeconds            float64       // EMA time constant for hashrate
 	HashrateCumulativeEnabled        bool          // blend per-connection EMA with cumulative hashrate (display)
 	HashrateRecentCumulativeEnabled  bool          // allow short-horizon cumulative (vardiff window) to influence display
@@ -252,7 +251,7 @@ type EffectiveConfig struct {
 	ConnectionTimeout                 string   `json:"connection_timeout"`
 	VersionMask                       string   `json:"version_mask,omitempty"`
 	MinVersionBits                    int      `json:"min_version_bits,omitempty"`
-	ShareAllowVersionMaskMismatch     bool     `json:"share_allow_version_mask_mismatch,omitempty"`
+	ShareAllowOutOfMaskVersionBits    bool     `json:"share_allow_out_of_mask_version_bits,omitempty"`
 	ShareAllowDegradedVersionBits     bool     `json:"share_allow_degraded_version_bits,omitempty"`
 	BIP110Enabled                     bool     `json:"bip110_enabled,omitempty"`
 	MaxDifficulty                     float64  `json:"max_difficulty,omitempty"`
@@ -260,7 +259,6 @@ type EffectiveConfig struct {
 	TargetSharesPerMin                float64  `json:"target_shares_per_min,omitempty"`
 	VarDiffEnabled                    bool     `json:"vardiff_enabled"`
 	LockSuggestedDifficulty           bool     `json:"lock_suggested_difficulty,omitempty"`
-	DifficultyStepGranularity         int      `json:"difficulty_step_granularity,omitempty"`
 	ShareJobFreshnessMode             int      `json:"share_job_freshness_mode"`
 	ShareCheckNTimeWindow             bool     `json:"share_check_ntime_window"`
 	ShareCheckVersionRolling          bool     `json:"share_check_version_rolling"`

@@ -285,7 +285,6 @@ func buildAdminSettingsData(cfg Config) AdminSettingsData {
 		DefaultDifficulty:                    cfg.DefaultDifficulty,
 		TargetSharesPerMin:                   cfg.TargetSharesPerMin,
 		VarDiffEnabled:                       cfg.VarDiffEnabled,
-		DifficultyStepGranularity:            cfg.DifficultyStepGranularity,
 		LockSuggestedDifficulty:              cfg.LockSuggestedDifficulty,
 		EnforceSuggestedDifficultyLimits:     cfg.EnforceSuggestedDifficultyLimits,
 		ShareJobFreshnessMode:                cfg.ShareJobFreshnessMode,
@@ -320,7 +319,7 @@ func buildAdminSettingsData(cfg Config) AdminSettingsData {
 		HashrateRecentCumulativeEnabled:      cfg.HashrateRecentCumulativeEnabled,
 		ShareNTimeMaxForwardSeconds:          cfg.ShareNTimeMaxForwardSeconds,
 		MinVersionBits:                       cfg.MinVersionBits,
-		ShareAllowVersionMaskMismatch:        cfg.ShareAllowVersionMaskMismatch,
+		ShareAllowOutOfMaskVersionBits:       cfg.ShareAllowOutOfMaskVersionBits,
 		ShareAllowDegradedVersionBits:        cfg.ShareAllowDegradedVersionBits,
 		BIP110Enabled:                        cfg.BIP110Enabled,
 	}
@@ -727,12 +726,6 @@ func applyAdminSettingsForm(cfg *Config, r *http.Request) error {
 	if next.TargetSharesPerMin < adminMinTargetSharesPerMin || next.TargetSharesPerMin > adminMaxTargetSharesPerMin {
 		return fmt.Errorf("target_shares_per_min must be between %.1f and %.1f", adminMinTargetSharesPerMin, adminMaxTargetSharesPerMin)
 	}
-	if next.DifficultyStepGranularity, err = parseInt("difficulty_step_granularity", next.DifficultyStepGranularity); err != nil {
-		return err
-	}
-	if next.DifficultyStepGranularity < 1 {
-		return fmt.Errorf("difficulty_step_granularity must be >= 1")
-	}
 	if next.MaxDifficulty > 0 && next.MinDifficulty > next.MaxDifficulty {
 		return fmt.Errorf("min_difficulty must be <= max_difficulty when max_difficulty is set")
 	}
@@ -811,7 +804,7 @@ func applyAdminSettingsForm(cfg *Config, r *http.Request) error {
 	next.ShareRequireWorkerMatch = getBool("share_require_worker_match")
 	next.SubmitProcessInline = getBool("submit_process_inline")
 	next.ShareCheckDuplicate = getBool("share_check_duplicate")
-	next.ShareAllowVersionMaskMismatch = getBool("share_allow_version_mask_mismatch")
+	next.ShareAllowOutOfMaskVersionBits = getBool("share_allow_out_of_mask_version_bits")
 	next.ShareAllowDegradedVersionBits = getBool("share_allow_degraded_version_bits")
 	next.BIP110Enabled = getBool("bip110_enabled")
 	next.VarDiffEnabled = getBool("vardiff_enabled")

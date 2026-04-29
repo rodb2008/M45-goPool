@@ -105,10 +105,10 @@ func buildPolicyFileConfig(cfg Config) policyFileConfig {
 			ShareNTimeMaxForwardSeconds: new(cfg.ShareNTimeMaxForwardSeconds),
 		},
 		Version: versionTuning{
-			MinVersionBits:                new(cfg.MinVersionBits),
-			ShareAllowVersionMaskMismatch: new(cfg.ShareAllowVersionMaskMismatch),
-			ShareAllowDegradedVersionBits: new(cfg.ShareAllowDegradedVersionBits),
-			BIP110Enabled:                 new(cfg.BIP110Enabled),
+			MinVersionBits:                 new(cfg.MinVersionBits),
+			ShareAllowOutOfMaskVersionBits: new(cfg.ShareAllowOutOfMaskVersionBits),
+			ShareAllowDegradedVersionBits:  new(cfg.ShareAllowDegradedVersionBits),
+			BIP110Enabled:                  new(cfg.BIP110Enabled),
 		},
 		Bans: banTuning{
 			CleanExpiredOnStartup:            new(cfg.CleanExpiredBansOnStartup),
@@ -157,7 +157,6 @@ func buildTuningFileConfig(cfg Config) tuningFileConfig {
 			JobEntropy:                new(cfg.JobEntropy),
 			CoinbaseScriptSigMaxBytes: new(cfg.CoinbaseScriptSigMaxBytes),
 			DisablePoolJobEntropy:     new(false),
-			DifficultyStepGranularity: new(cfg.DifficultyStepGranularity),
 		},
 		Hashrate: tuningHashrateConfig{
 			HashrateEMATauSeconds:              new(cfg.HashrateEMATauSeconds),
@@ -251,7 +250,7 @@ func (cfg Config) Effective() EffectiveConfig {
 		ConnectionTimeout:                 cfg.ConnectionTimeout.String(),
 		VersionMask:                       uint32ToHex8Lower(cfg.VersionMask),
 		MinVersionBits:                    cfg.MinVersionBits,
-		ShareAllowVersionMaskMismatch:     cfg.ShareAllowVersionMaskMismatch,
+		ShareAllowOutOfMaskVersionBits:    cfg.ShareAllowOutOfMaskVersionBits,
 		ShareAllowDegradedVersionBits:     cfg.ShareAllowDegradedVersionBits,
 		BIP110Enabled:                     cfg.BIP110Enabled,
 		MaxDifficulty:                     cfg.MaxDifficulty,
@@ -260,7 +259,6 @@ func (cfg Config) Effective() EffectiveConfig {
 		VarDiffEnabled:                    cfg.VarDiffEnabled,
 		// Effective config mirrors whether suggested difficulty locking is enabled.
 		LockSuggestedDifficulty:          cfg.LockSuggestedDifficulty,
-		DifficultyStepGranularity:        cfg.DifficultyStepGranularity,
 		ShareJobFreshnessMode:            cfg.ShareJobFreshnessMode,
 		ShareCheckNTimeWindow:            cfg.ShareCheckNTimeWindow,
 		ShareCheckVersionRolling:         cfg.ShareCheckVersionRolling,

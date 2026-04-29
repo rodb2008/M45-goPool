@@ -9,8 +9,8 @@ import (
 )
 
 var (
-	hexNibbleLUT   [256]byte
-	hexPairByteLUT [65536]uint16
+	hexNibbleLUT       [256]byte
+	hexPairByteLUT     [65536]uint16
 	hexPairLowerEncLUT [256]uint16
 )
 
@@ -288,6 +288,21 @@ func parseUint32BEHex(hexStr string) (uint32, error) {
 		return 0, fmt.Errorf("invalid hex digit in %q", hexStr)
 	}
 	return uint32(byte(v0))<<24 | uint32(byte(v1))<<16 | uint32(byte(v2))<<8 | uint32(byte(v3)), nil
+}
+
+func parseUint32BEHexPadded(hexStr string) (uint32, error) {
+	if len(hexStr) == 0 || len(hexStr) > 8 {
+		return 0, fmt.Errorf("expected 1-8 hex characters, got %d", len(hexStr))
+	}
+	var out uint32
+	for i := 0; i < len(hexStr); i++ {
+		n := hexNibbleLUT[hexStr[i]]
+		if n == 0xff {
+			return 0, fmt.Errorf("invalid hex digit in %q", hexStr)
+		}
+		out = (out << 4) | uint32(n)
+	}
+	return out, nil
 }
 
 func parseUint32BEHexBytes(hexBytes []byte) (uint32, error) {

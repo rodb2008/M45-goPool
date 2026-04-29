@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"math/bits"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -43,23 +42,93 @@ func decodeExtranonce2Hex(extranonce2 string, validateFields bool, expectedSize 
 	return small, uint16(size), large, nil
 }
 
-// resolveSubmittedVersion interprets submit version values as deltas
-// (rolled_version ^ base_version) whenever possible.
-//
-// Values fully inside the negotiated mask are always treated as deltas.
-// When out-of-mask values are allowed, goPool stays in delta-only mode for
-// compatibility with miners that submit only version deltas.
-func resolveSubmittedVersion(baseVersion, submittedVersion, versionMask uint32, allowMaskMismatch bool) (useVersion, versionDiff uint32) {
+func normalizeSubmitExtranonce2Hex(extranonce2 string, expectedSize int) (string, error) {
+	if len(extranonce2) == 0 {
+		return "", fmt.Errorf("extranonce2 required")
+	}
+	for i := 0; i < len(extranonce2); i++ {
+		if hexNibbleLUT[extranonce2[i]] == 0xff {
+			return "", fmt.Errorf("invalid hex digit in %q", extranonce2)
+		}
+	}
+	if expectedSize > 0 {
+		wantLen := expectedSize * 2
+		switch {
+		case len(extranonce2) > wantLen:
+			return extranonce2[:wantLen], nil
+		case len(extranonce2) < wantLen:
+			return extranonce2 + strings.Repeat("0", wantLen-len(extranonce2)), nil
+		default:
+			return extranonce2, nil
+		}
+	}
+	if len(extranonce2)%2 != 0 {
+		return "", fmt.Errorf("odd-length extranonce2 hex")
+	}
+	return extranonce2, nil
+}
+
+func normalizeSubmitNonceHex(nonce string) (string, error) {
+	if len(nonce) == 0 {
+		return "", fmt.Errorf("nonce required")
+	}
+	for i := 0; i < len(nonce); i++ {
+		if hexNibbleLUT[nonce[i]] == 0xff {
+			return "", fmt.Errorf("invalid hex digit in %q", nonce)
+		}
+	}
+	if len(nonce) > maxNonceHexLen {
+		return nonce[:maxNonceHexLen], nil
+	}
+	return nonce, nil
+}
+
+type submittedVersionResolution struct {
+	useVersion          uint32
+	versionDiff         uint32
+	alternateUseVersion uint32
+	hasAlternateVersion bool
+}
+
+// resolveSubmittedVersion prefers BIP310 replacement-bits semantics while
+// retaining a legacy XOR-delta alternate for miners that historically used it.
+func resolveSubmittedVersion(baseVersion, submittedVersion, versionMask uint32, allowMaskMismatch bool) submittedVersionResolution {
 	if submittedVersion == 0 {
-		return baseVersion, 0
+		return submittedVersionResolution{useVersion: baseVersion}
 	}
-	if submittedVersion&^versionMask == 0 {
-		return baseVersion ^ submittedVersion, submittedVersion
+
+	if versionMask != 0 && submittedVersion&^versionMask == 0 {
+		bip310Version := (baseVersion &^ versionMask) | (submittedVersion & versionMask)
+		xorVersion := baseVersion ^ submittedVersion
+		out := submittedVersionResolution{
+			useVersion:  bip310Version,
+			versionDiff: bip310Version ^ baseVersion,
+		}
+		if xorVersion != bip310Version {
+			out.alternateUseVersion = xorVersion
+			out.hasAlternateVersion = true
+		}
+		return out
 	}
+
+	fullVersionDiff := submittedVersion ^ baseVersion
+	if fullVersionDiff&^versionMask == 0 {
+		return submittedVersionResolution{
+			useVersion:  submittedVersion,
+			versionDiff: fullVersionDiff,
+		}
+	}
+
 	if allowMaskMismatch {
-		return baseVersion ^ submittedVersion, submittedVersion
+		return submittedVersionResolution{
+			useVersion:  baseVersion ^ submittedVersion,
+			versionDiff: submittedVersion,
+		}
 	}
-	return submittedVersion, submittedVersion ^ baseVersion
+	return submittedVersionResolution{
+		useVersion:  submittedVersion,
+		versionDiff: fullVersionDiff,
+	}
 }
 
 // parseSubmitParams validates and extracts the core fields from a mining.submit
@@ -155,93 +224,11 @@ func (mc *MinerConn) parseSubmitParams(req *StratumRequest, now time.Time) (subm
 			mc.writeResponse(StratumResponse{ID: req.ID, Result: false, Error: newStratumError(stratumErrCodeInvalidRequest, "version too long")})
 			return out, false
 		}
-		verVal, err := parseUint32BEHex(verStr)
+		verVal, err := parseUint32BEHexPadded(verStr)
 		if err != nil {
 			if validateFields {
 				mc.recordShare(worker, false, 0, 0, "invalid version", "", nil, now)
 				mc.writeResponse(StratumResponse{ID: req.ID, Result: false, Error: newStratumError(stratumErrCodeInvalidRequest, "invalid version")})
-				return out, false
-			}
-			verVal = 0
-		}
-		submittedVersion = verVal
-	}
-
-	out.worker = worker
-	out.jobID = jobID
-	out.extranonce2 = extranonce2
-	out.ntime = ntime
-	out.nonce = nonce
-	out.submittedVersion = submittedVersion
-	return out, true
-}
-
-func (mc *MinerConn) parseSubmitParamsStrings(id any, params []string, now time.Time) (submitParams, bool) {
-	var out submitParams
-	validateFields := mc.cfg.ShareCheckParamFormat
-
-	if len(params) < 5 || len(params) > 6 {
-		logger.Debug("submit invalid params", "remote", mc.id, "params", params)
-		mc.recordShare("", false, 0, 0, "invalid params", "", nil, now)
-		mc.writeResponse(StratumResponse{ID: id, Result: false, Error: newStratumError(stratumErrCodeInvalidRequest, "invalid params")})
-		return out, false
-	}
-
-	worker := params[0]
-	if validateFields {
-		worker = trimSpaceFast(worker)
-	}
-	if validateFields && len(worker) == 0 {
-		mc.recordShare("", false, 0, 0, "empty worker", "", nil, now)
-		mc.writeResponse(StratumResponse{ID: id, Result: false, Error: newStratumError(stratumErrCodeInvalidRequest, "worker name required")})
-		return out, false
-	}
-	if validateFields && len(worker) > maxWorkerNameLen {
-		logger.Debug("submit rejected: worker name too long", "remote", mc.id, "len", len(worker))
-		mc.recordShare("", false, 0, 0, "worker name too long", "", nil, now)
-		mc.writeResponse(StratumResponse{ID: id, Result: false, Error: newStratumError(stratumErrCodeInvalidRequest, "worker name too long")})
-		return out, false
-	}
-
-	jobID := params[1]
-	if validateFields {
-		jobID = trimSpaceFast(jobID)
-	}
-	if len(jobID) == 0 {
-		mc.recordShare(worker, false, 0, 0, "empty job id", "", nil, now)
-		mc.writeResponse(StratumResponse{ID: id, Result: false, Error: newStratumError(stratumErrCodeInvalidRequest, "job id required")})
-		return out, false
-	}
-	if validateFields && len(jobID) > maxJobIDLen {
-		logger.Debug("submit rejected: job id too long", "remote", mc.id, "len", len(jobID))
-		mc.recordShare(worker, false, 0, 0, "job id too long", "", nil, now)
-		mc.writeResponse(StratumResponse{ID: id, Result: false, Error: newStratumError(stratumErrCodeInvalidRequest, "job id too long")})
-		return out, false
-	}
-
-	extranonce2 := params[2]
-	ntime := params[3]
-	nonce := params[4]
-
-	submittedVersion := uint32(0)
-	if len(params) == 6 {
-		verStr := params[5]
-		if validateFields && len(verStr) == 0 {
-			mc.recordShare(worker, false, 0, 0, "empty version", "", nil, now)
-			mc.writeResponse(StratumResponse{ID: id, Result: false, Error: newStratumError(stratumErrCodeInvalidRequest, "version required")})
-			return out, false
-		}
-		if validateFields && len(verStr) > maxVersionHexLen {
-			logger.Debug("submit rejected: version too long", "remote", mc.id, "len", len(verStr))
-			mc.recordShare(worker, false, 0, 0, "version too long", "", nil, now)
-			mc.writeResponse(StratumResponse{ID: id, Result: false, Error: newStratumError(stratumErrCodeInvalidRequest, "version too long")})
-			return out, false
-		}
-		verVal, err := parseUint32BEHex(verStr)
-		if err != nil {
-			if validateFields {
-				mc.recordShare(worker, false, 0, 0, "invalid version", "", nil, now)
-				mc.writeResponse(StratumResponse{ID: id, Result: false, Error: newStratumError(stratumErrCodeInvalidRequest, "invalid version")})
 				return out, false
 			}
 			verVal = 0
@@ -352,6 +339,12 @@ func (mc *MinerConn) prepareSubmissionTaskFromParsed(reqID any, params submitPar
 		policyReject = submitPolicyReject{reason: rejectStaleJob, errCode: stratumErrCodeJobNotFound, errMsg: "job not found"}
 	}
 
+	extranonce2, err := normalizeSubmitExtranonce2Hex(extranonce2, job.Extranonce2Size)
+	if err != nil {
+		logger.Debug("submit bad extranonce2", "remote", mc.id, "error", err)
+		mc.rejectShareWithBan(&StratumRequest{ID: reqID, Method: "mining.submit"}, workerName, rejectInvalidExtranonce2, stratumErrCodeInvalidRequest, "invalid extranonce2", now)
+		return submissionTask{}, false
+	}
 	en2Small, en2Len, en2Large, err := decodeExtranonce2Hex(extranonce2, validateFields, job.Extranonce2Size)
 	if err != nil {
 		logger.Debug("submit bad extranonce2", "remote", mc.id, "error", err)
@@ -359,13 +352,13 @@ func (mc *MinerConn) prepareSubmissionTaskFromParsed(reqID any, params submitPar
 		return submissionTask{}, false
 	}
 
-	if validateFields && len(ntime) != 8 {
+	if validateFields && (len(ntime) == 0 || len(ntime) > 8) {
 		logger.Debug("submit invalid ntime length", "remote", mc.id, "len", len(ntime))
 		mc.rejectShareWithBan(&StratumRequest{ID: reqID, Method: "mining.submit"}, workerName, rejectInvalidNTime, stratumErrCodeInvalidRequest, "invalid ntime", now)
 		return submissionTask{}, false
 	}
 	// Stratum pools send ntime as BIG-ENDIAN hex and parse it back with parseInt(hex, 16).
-	ntimeVal, err := parseUint32BEHex(ntime)
+	ntimeVal, err := parseUint32BEHexPadded(ntime)
 	if err != nil {
 		logger.Debug("submit bad ntime", "remote", mc.id, "error", err)
 		mc.rejectShareWithBan(&StratumRequest{ID: reqID, Method: "mining.submit"}, workerName, rejectInvalidNTime, stratumErrCodeInvalidRequest, "invalid ntime", now)
@@ -385,13 +378,14 @@ func (mc *MinerConn) prepareSubmissionTaskFromParsed(reqID any, params submitPar
 		}
 	}
 
-	if validateFields && len(nonce) != 8 {
-		logger.Debug("submit invalid nonce length", "remote", mc.id, "len", len(nonce))
+	nonce, err = normalizeSubmitNonceHex(nonce)
+	if err != nil {
+		logger.Debug("submit bad nonce", "remote", mc.id, "error", err)
 		mc.rejectShareWithBan(&StratumRequest{ID: reqID, Method: "mining.submit"}, workerName, rejectInvalidNonce, stratumErrCodeInvalidRequest, "invalid nonce", now)
 		return submissionTask{}, false
 	}
 	// Nonce is sent as BIG-ENDIAN hex in mining.notify.
-	nonceVal, err := parseUint32BEHex(nonce)
+	nonceVal, err := parseUint32BEHexPadded(nonce)
 	if err != nil {
 		logger.Debug("submit bad nonce", "remote", mc.id, "error", err)
 		mc.rejectShareWithBan(&StratumRequest{ID: reqID, Method: "mining.submit"}, workerName, rejectInvalidNonce, stratumErrCodeInvalidRequest, "invalid nonce", now)
@@ -400,24 +394,30 @@ func (mc *MinerConn) prepareSubmissionTaskFromParsed(reqID any, params submitPar
 
 	// BIP320: reject version rolls outside the negotiated mask (docs/protocols/bip-0320.mediawiki).
 	baseVersion := uint32(job.Template.Version)
-	useVersion, versionDiff := resolveSubmittedVersion(baseVersion, submittedVersion, mc.versionMask, mc.cfg.ShareAllowVersionMaskMismatch)
+	versionResolution := resolveSubmittedVersion(baseVersion, submittedVersion, mc.versionMask, mc.cfg.ShareAllowOutOfMaskVersionBits)
+	useVersion := versionResolution.useVersion
+	versionDiff := versionResolution.versionDiff
 
 	versionHex := ""
 	if debugLogging || verboseRuntimeLogging {
 		versionHex = uint32ToHex8Lower(useVersion)
 	}
 	if mc.cfg.ShareCheckVersionRolling && versionDiff != 0 {
-		maskedDiff := versionDiff & mc.versionMask
-
 		if !mc.versionRoll {
-			logger.Warn("submit version rolling disabled (policy)", "remote", mc.id, "diff", uint32ToHex8Lower(versionDiff))
-			if policyReject.reason == rejectUnknown {
-				policyReject = submitPolicyReject{reason: rejectInvalidVersion, errCode: stratumErrCodeInvalidRequest, errMsg: "version rolling not enabled"}
+			if !mc.cfg.ShareAllowOutOfMaskVersionBits {
+				logger.Warn("submit version rolling disabled (policy)", "remote", mc.id, "diff", uint32ToHex8Lower(versionDiff))
+				if policyReject.reason == rejectUnknown {
+					policyReject = submitPolicyReject{reason: rejectInvalidVersion, errCode: stratumErrCodeInvalidRequest, errMsg: "version rolling not enabled"}
+				}
+			} else {
+				logger.Debug("submit version rolling disabled but version bits allowed (compat)",
+					"remote", mc.id,
+					"diff", uint32ToHex8Lower(versionDiff))
 			}
 		}
 
 		if versionDiff&^mc.versionMask != 0 {
-			if !mc.cfg.ShareAllowVersionMaskMismatch {
+			if !mc.cfg.ShareAllowOutOfMaskVersionBits {
 				logger.Warn("submit version outside mask (policy)", "remote", mc.id, "version", uint32ToHex8Lower(useVersion), "mask", uint32ToHex8Lower(mc.versionMask))
 				if policyReject.reason == rejectUnknown {
 					policyReject = submitPolicyReject{reason: rejectInvalidVersionMask, errCode: stratumErrCodeInvalidRequest, errMsg: "invalid version mask"}
@@ -429,46 +429,31 @@ func (mc *MinerConn) prepareSubmissionTaskFromParsed(reqID any, params submitPar
 					"mask", uint32ToHex8Lower(mc.versionMask))
 			}
 		}
-
-		if mc.minVerBits > 0 {
-			usedBits := bits.OnesCount32(maskedDiff)
-			if usedBits < mc.minVerBits {
-				if !mc.cfg.ShareAllowDegradedVersionBits {
-					logger.Warn("submit insufficient version rolling bits (policy)", "remote", mc.id, "version", uint32ToHex8Lower(useVersion), "required_bits", mc.minVerBits)
-					if policyReject.reason == rejectUnknown {
-						policyReject = submitPolicyReject{reason: rejectInsufficientVersionBits, errCode: stratumErrCodeInvalidRequest, errMsg: "insufficient version bits"}
-					}
-				} else {
-					// Log but don't reject (BIP310 permissive approach: allow degraded mode)
-					logger.Warn("submit: miner operating in degraded version rolling mode (allowed by BIP310)",
-						"remote", mc.id, "version", uint32ToHex8Lower(useVersion),
-						"used_bits", usedBits,
-						"negotiated_minimum", mc.minVerBits)
-				}
-			}
-		}
 	}
 
 	task := submissionTask{
-		mc:                 mc,
-		reqID:              reqID,
-		job:                job,
-		jobID:              jobID,
-		workerName:         workerName,
-		extranonce2:        extranonce2,
-		extranonce2Len:     en2Len,
-		extranonce2Bytes:   en2Small,
-		extranonce2Large:   en2Large,
-		ntime:              ntime,
-		ntimeVal:           ntimeVal,
-		nonce:              nonce,
-		nonceVal:           nonceVal,
-		versionHex:         versionHex,
-		useVersion:         useVersion,
-		scriptTime:         notifiedScriptTime,
-		assignedDifficulty: mc.assignedDifficulty(jobID),
-		policyReject:       policyReject,
-		receivedAt:         now,
+		mc:                  mc,
+		reqID:               reqID,
+		job:                 job,
+		jobID:               jobID,
+		workerName:          workerName,
+		extranonce2:         extranonce2,
+		extranonce2Len:      en2Len,
+		extranonce2Bytes:    en2Small,
+		extranonce2Large:    en2Large,
+		ntime:               ntime,
+		ntimeVal:            ntimeVal,
+		nonce:               nonce,
+		nonceVal:            nonceVal,
+		versionHex:          versionHex,
+		useVersion:          useVersion,
+		alternateVersionHex: uint32ToHex8Lower(versionResolution.alternateUseVersion),
+		alternateUseVersion: versionResolution.alternateUseVersion,
+		hasAlternateVersion: versionResolution.hasAlternateVersion,
+		scriptTime:          notifiedScriptTime,
+		assignedDifficulty:  mc.assignedDifficulty(jobID),
+		policyReject:        policyReject,
+		receivedAt:          now,
 	}
 	return task, true
 }

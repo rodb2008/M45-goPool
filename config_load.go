@@ -138,7 +138,6 @@ func loadTOMLFile[T any](path string) (*T, bool, error) {
 		}
 		return nil, false, fmt.Errorf("read %s: %w", path, err)
 	}
-
 	var cfg T
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return nil, true, fmt.Errorf("parse %s: %w", path, err)
@@ -524,9 +523,6 @@ func applyFileOverrides(cfg *Config, fc fileOverrideConfig) {
 	if fc.Mining.CoinbaseScriptSigMaxBytes != nil {
 		cfg.CoinbaseScriptSigMaxBytes = *fc.Mining.CoinbaseScriptSigMaxBytes
 	}
-	if fc.Mining.DifficultyStepGranularity != nil && *fc.Mining.DifficultyStepGranularity > 0 {
-		cfg.DifficultyStepGranularity = *fc.Mining.DifficultyStepGranularity
-	}
 	if fc.Hashrate.HashrateEMATauSeconds != nil && *fc.Hashrate.HashrateEMATauSeconds > 0 {
 		cfg.HashrateEMATauSeconds = *fc.Hashrate.HashrateEMATauSeconds
 	}
@@ -578,8 +574,8 @@ func applyFileOverrides(cfg *Config, fc fileOverrideConfig) {
 	if fc.Version.MinVersionBits != nil {
 		cfg.MinVersionBits = *fc.Version.MinVersionBits
 	}
-	if fc.Version.ShareAllowVersionMaskMismatch != nil {
-		cfg.ShareAllowVersionMaskMismatch = *fc.Version.ShareAllowVersionMaskMismatch
+	if fc.Version.ShareAllowOutOfMaskVersionBits != nil {
+		cfg.ShareAllowOutOfMaskVersionBits = *fc.Version.ShareAllowOutOfMaskVersionBits
 	}
 	if fc.Version.ShareAllowDegradedVersionBits != nil {
 		cfg.ShareAllowDegradedVersionBits = *fc.Version.ShareAllowDegradedVersionBits

@@ -45,3 +45,28 @@ func TestHexLUTAcceptsUpperAndLower(t *testing.T) {
 	}
 }
 
+func TestParseUint32BEHexPadded(t *testing.T) {
+	cases := map[string]uint32{
+		"1":        1,
+		"00000001": 1,
+		"abc":      0xabc,
+		"DEADBEEF": 0xdeadbeef,
+		"ffffffff": 0xffffffff,
+	}
+
+	for input, want := range cases {
+		got, err := parseUint32BEHexPadded(input)
+		if err != nil {
+			t.Fatalf("parseUint32BEHexPadded(%q): %v", input, err)
+		}
+		if got != want {
+			t.Fatalf("parseUint32BEHexPadded(%q)=%08x want=%08x", input, got, want)
+		}
+	}
+
+	for _, input := range []string{"", "000000001", "zzzzzzzz"} {
+		if _, err := parseUint32BEHexPadded(input); err == nil {
+			t.Fatalf("parseUint32BEHexPadded(%q) expected error", input)
+		}
+	}
+}

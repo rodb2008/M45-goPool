@@ -92,7 +92,7 @@ func TestMiningSubmitRespondsBeforeNotifyOnVardiffMove(t *testing.T) {
 	mc.stats.WindowAccepted = 10
 	mc.stats.WindowSubmissions = 10
 	mc.statsMu.Unlock()
-	mc.rollingHashrateValue = 1e10 // enough to trigger an upward move (and power-of-two quantization)
+	mc.rollingHashrateValue = 1e10 // enough to trigger an upward move
 
 	task := submissionTask{
 		mc:               mc,

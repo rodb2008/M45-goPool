@@ -81,6 +81,7 @@ func (mc *MinerConn) connectionIDString() string {
 }
 
 const base58Alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+const jobIDRolloverModulo uint64 = 58 * 58 * 58 * 58 * 58 * 58
 
 func encodeBase58Uint64(value uint64) string {
 	if value == 0 {
@@ -177,6 +178,8 @@ func NewMinerConn(ctx context.Context, c net.Conn, jobMgr *JobManager, rpc rpcCa
 		mc.jobNTimeBounds = make(map[string]jobNTimeBounds, maxRecentJobs)
 	}
 
+	initialDiff = mc.clampDifficulty(initialDiff)
+
 	// Initialize atomic fields
 	atomicStoreFloat64(&mc.difficulty, initialDiff)
 	mc.shareTarget.Store(targetFromDifficulty(initialDiff))
@@ -263,13 +266,7 @@ func (mc *MinerConn) ApplyRuntimeConfig(cfg Config) {
 	}
 
 	curDiff := atomicLoadFloat64(&mc.difficulty)
-	clamped := curDiff
-	if mc.vardiff.MinDiff > 0 && clamped < mc.vardiff.MinDiff {
-		clamped = mc.vardiff.MinDiff
-	}
-	if mc.vardiff.MaxDiff > 0 && clamped > mc.vardiff.MaxDiff {
-		clamped = mc.vardiff.MaxDiff
-	}
+	clamped := mc.clampDifficulty(curDiff)
 	if clamped > 0 && clamped != curDiff {
 		atomicStoreFloat64(&mc.difficulty, clamped)
 		mc.shareTarget.Store(targetFromDifficulty(clamped))
@@ -344,9 +341,18 @@ func (mc *MinerConn) handle() {
 			continue
 		}
 		mc.recordActivity(now)
-		sniffedMethod, sniffedIDRaw, sniffedOK := sniffStratumMethodIDTagRawID(line)
-		if mc.stratumMsgRateLimitExceeded(now, sniffedMethod) {
-			banWorker := mc.workerForRateLimitBan(sniffedMethod, line)
+
+		var req StratumRequest
+		if err := fastJSONUnmarshal(line, &req); err != nil {
+			logger.Warn("json error from miner", "component", "miner", "kind", "protocol", "remote", mc.id, "error", err)
+			if banned, count := mc.noteProtocolViolation(now); banned {
+				mc.sendClientShowMessage("Banned: " + mc.banReason)
+				mc.logBan("invalid stratum json", mc.currentWorker(), count)
+			}
+			return
+		}
+		if mc.stratumMsgRateLimitExceeded(now, req.Method) {
+			banWorker := mc.workerForRateLimitBan()
 			logger.Warn("closing miner for stratum message rate limit",
 				"component", "miner", "kind", "rate_limit",
 				"remote", mc.id,
@@ -355,25 +361,6 @@ func (mc *MinerConn) handle() {
 				"effective_limit_per_min", mc.cfg.StratumMessagesPerMinute*stratumFloodLimitMultiplier,
 			)
 			mc.banFor("stratum message rate limit", time.Hour, banWorker)
-			return
-		}
-
-		var req StratumRequest
-		if err := fastJSONUnmarshal(line, &req); err != nil {
-			if sniffedOK && len(sniffedIDRaw) > 0 {
-				if idVal, _, ok := parseJSONValue(sniffedIDRaw, 0); ok && idVal != nil {
-					mc.writeResponse(StratumResponse{
-						ID:     idVal,
-						Result: nil,
-						Error:  newStratumError(stratumErrCodeParseError, "parse error"),
-					})
-				}
-			}
-			logger.Warn("json error from miner", "component", "miner", "kind", "protocol", "remote", mc.id, "error", err)
-			if banned, count := mc.noteProtocolViolation(now); banned {
-				mc.sendClientShowMessage("Banned: " + mc.banReason)
-				mc.logBan("invalid stratum json", mc.currentWorker(), count)
-			}
 			return
 		}
 
@@ -387,6 +374,12 @@ func (mc *MinerConn) handle() {
 			mc.handleAuthorize(&req)
 		case "mining.submit":
 			mc.handleSubmit(&req)
+		case "mining.term":
+			if req.ID != nil {
+				mc.writeTrueResponse(req.ID)
+			}
+			mc.Close("mining term")
+			return
 		case "mining.configure":
 			mc.handleConfigure(&req)
 		case "mining.extranonce.subscribe":
@@ -506,21 +499,11 @@ func (mc *MinerConn) handleGetTransactions(req *StratumRequest) {
 	mc.writeResponse(StratumResponse{ID: req.ID, Result: out, Error: nil})
 }
 
-func (mc *MinerConn) workerForRateLimitBan(method stratumMethodTag, line []byte) string {
+func (mc *MinerConn) workerForRateLimitBan() string {
 	if mc == nil {
 		return ""
 	}
-	if worker := strings.TrimSpace(mc.currentWorker()); worker != "" {
-		return worker
-	}
-	if method != stratumMethodMiningAuthorize {
-		return ""
-	}
-	params, ok := sniffStratumStringParams(line, 1)
-	if !ok || len(params) == 0 {
-		return ""
-	}
-	return strings.TrimSpace(params[0])
+	return strings.TrimSpace(mc.currentWorker())
 }
 
 func (mc *MinerConn) scheduleInitialWork() {
@@ -566,6 +549,9 @@ func (mc *MinerConn) sendInitialWork() {
 	if !mc.subscribed || !mc.authorized || !mc.listenerOn {
 		return
 	}
+	if mc.jobMgr == nil {
+		return
+	}
 
 	mc.initWorkMu.Lock()
 	if mc.initialWorkSent {
@@ -591,6 +577,7 @@ func (mc *MinerConn) sendInitialWork() {
 			mc.setDifficulty(mc.startupPrimedDifficulty(diff))
 		}
 	}
+	mc.sendPendingStratumSetup()
 
 	// First job always has clean_jobs=true so the miner starts fresh.
 	if job := mc.jobMgr.CurrentJob(); job != nil {

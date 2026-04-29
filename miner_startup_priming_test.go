@@ -7,8 +7,7 @@ import (
 func TestStartupPrimedDifficulty_LowersBeforeFirstShare(t *testing.T) {
 	mc := &MinerConn{
 		cfg: Config{
-			MinDifficulty:             1,
-			DifficultyStepGranularity: 4,
+			MinDifficulty: 1,
 		},
 		vardiff: VarDiffConfig{
 			MinDiff: 1,
@@ -23,8 +22,7 @@ func TestStartupPrimedDifficulty_LowersBeforeFirstShare(t *testing.T) {
 func TestStartupPrimedDifficulty_DisabledAfterAcceptedShare(t *testing.T) {
 	mc := &MinerConn{
 		cfg: Config{
-			MinDifficulty:             1,
-			DifficultyStepGranularity: 4,
+			MinDifficulty: 1,
 		},
 		vardiff: VarDiffConfig{
 			MinDiff: 1,
@@ -42,9 +40,8 @@ func TestStartupPrimedDifficulty_DisabledAfterAcceptedShare(t *testing.T) {
 func TestStartupPrimedDifficulty_HonorsLockSuggestedDifficulty(t *testing.T) {
 	mc := &MinerConn{
 		cfg: Config{
-			LockSuggestedDifficulty:   true,
-			MinDifficulty:             1,
-			DifficultyStepGranularity: 4,
+			LockSuggestedDifficulty: true,
+			MinDifficulty:           1,
 		},
 		vardiff: VarDiffConfig{
 			MinDiff: 1,

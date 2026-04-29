@@ -43,6 +43,9 @@ func (mc *MinerConn) writeBytesLocked(b []byte) error {
 }
 
 func (mc *MinerConn) writeResponse(resp StratumResponse) {
+	if resp.ID == nil {
+		return
+	}
 	if err := mc.writeJSON(resp); err != nil {
 		logger.Error("write error", "remote", mc.id, "error", err)
 	}

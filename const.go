@@ -105,7 +105,6 @@ const (
 	defaultVarDiffStep               = 2
 	defaultVarDiffDampingFactor      = 0.7
 	defaultVarDiffRetargetDelay      = 30 * time.Second
-	defaultDifficultyStepGranularity = 10
 	vardiffAdaptiveMinWindow         = 30 * time.Second
 	vardiffAdaptiveMaxWindow         = 4 * time.Minute
 	vardiffAdaptiveHighShareCount    = 24.0
@@ -158,11 +157,14 @@ const (
 	defaultSavedWorkerHistoryFlushInterval = 3 * time.Hour
 
 	// Input validation limits.
-	maxMinerClientIDLen       = 256
-	maxWorkerNameLen          = 256
-	maxJobIDLen               = 128
-	maxVersionHexLen          = 8
-	maxDuplicateShareKeyBytes = 64
+	maxMinerClientIDLen          = 256
+	maxWorkerNameLen             = 256
+	maxJobIDLen                  = 128
+	maxNonceHexLen               = 8
+	maxVersionHexLen             = 8
+	maxDuplicateShareKeyBytes    = 64
+	minCompatibleExtranonce2Size = 2
+	maxCompatibleExtranonce2Size = 16
 
 	forceClerkLoginUIForTesting = false
 	clerkDevSessionTokenTTL     = 12 * time.Hour // localhost dev sessions only

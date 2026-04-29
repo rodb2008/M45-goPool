@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/big"
 	"math/bits"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -15,7 +16,7 @@ func (mc *MinerConn) recordActivity(now time.Time) {
 	mc.lastActivity = now
 }
 
-func (mc *MinerConn) stratumMsgRateLimitExceeded(now time.Time, method stratumMethodTag) bool {
+func (mc *MinerConn) stratumMsgRateLimitExceeded(now time.Time, method string) bool {
 	limit := mc.cfg.StratumMessagesPerMinute
 	if limit <= 0 {
 		return false
@@ -32,7 +33,7 @@ func (mc *MinerConn) stratumMsgRateLimitExceeded(now time.Time, method stratumMe
 	}
 
 	weightUnits := 2 // one full message
-	if method == stratumMethodMiningSubmit && !mc.connectedAt.IsZero() && now.Sub(mc.connectedAt) < earlySubmitHalfWeightWindow {
+	if method == "mining.submit" && !mc.connectedAt.IsZero() && now.Sub(mc.connectedAt) < earlySubmitHalfWeightWindow {
 		weightUnits = 1 // startup submit spam counts half until vardiff stabilizes
 	}
 
@@ -958,6 +959,9 @@ func (mc *MinerConn) suggestedVardiff(now time.Time, snap minerShareSnapshot) fl
 	if targetDiff <= 0 || math.IsNaN(targetDiff) || math.IsInf(targetDiff, 0) {
 		return currentDiff
 	}
+	if windowTargetDiff, ok := vardiffWindowHighShareTargetDiff(now, windowStart, windowAccepted, windowDifficulty, targetShares); ok && windowTargetDiff > targetDiff {
+		targetDiff = windowTargetDiff
+	}
 
 	// Aim directly at computed target share cadence.
 	if mc.vardiff.MaxDiff > 0 && targetDiff > mc.vardiff.MaxDiff {
@@ -1030,6 +1034,33 @@ func (mc *MinerConn) suggestedVardiff(now time.Time, snap minerShareSnapshot) fl
 		return currentDiff
 	}
 	return mc.clampDifficulty(newDiff)
+}
+
+func vardiffWindowHighShareTargetDiff(now, windowStart time.Time, windowAccepted int, windowDifficulty, targetShares float64) (float64, bool) {
+	if now.IsZero() || windowStart.IsZero() || !now.After(windowStart) || windowAccepted <= 0 || windowDifficulty <= 0 || targetShares <= 0 {
+		return 0, false
+	}
+	windowMinutes := now.Sub(windowStart).Minutes()
+	if windowMinutes <= 0 {
+		return 0, false
+	}
+	expected := targetShares * windowMinutes
+	observed := float64(windowAccepted)
+	if expected <= 0 || observed <= expected {
+		return 0, false
+	}
+	threshold := 2 * math.Sqrt(expected)
+	if threshold < vardiffUncertaintyMinSamples {
+		threshold = vardiffUncertaintyMinSamples
+	}
+	if observed-expected < threshold {
+		return 0, false
+	}
+	targetDiff := (windowDifficulty / windowMinutes) / targetShares
+	if targetDiff <= 0 || math.IsNaN(targetDiff) || math.IsInf(targetDiff, 0) {
+		return 0, false
+	}
+	return targetDiff, true
 }
 
 func (mc *MinerConn) vardiffAdjustmentCap(baseStep, targetRatio float64) float64 {
@@ -1304,44 +1335,42 @@ func (mc *MinerConn) shouldHoldLowHashrateDownshift(windowAccepted int, rollingH
 	return windowAccepted < vardiffLowHashrateMinAccepted
 }
 
-// quantizeDifficulty snaps a difficulty value to 2^(k/granularity) levels
-// within [min, max] (if max > 0). granularity=1 is power-of-two only.
-func quantizeDifficulty(diff, min, max float64, granularity int) float64 {
+// roundAssignedDifficulty keeps sub-1 difficulty fractional, but uses whole
+// number difficulty at 1+ for broad Stratum miner compatibility.
+func roundAssignedDifficulty(diff, min, max float64) float64 {
 	if diff <= 0 {
 		diff = min
 	}
-	if diff <= 0 {
+	if diff <= 0 || math.IsNaN(diff) || math.IsInf(diff, 0) {
 		return diff
 	}
-	if granularity <= 0 {
-		granularity = 1
-	}
-
-	log2 := math.Log2(diff) * float64(granularity)
-	if math.IsNaN(log2) || math.IsInf(log2, 0) {
+	if diff < 1 {
 		return diff
 	}
 
-	exp := math.Round(log2)
-	cand := math.Pow(2, exp/float64(granularity))
-
-	// Ensure candidate lies within [min, max] by snapping up/down as needed.
-	if cand < min && min > 0 {
-		exp = math.Ceil(math.Log2(min) * float64(granularity))
-		cand = math.Pow(2, exp/float64(granularity))
-	}
-	if max > 0 && cand > max {
-		exp = math.Floor(math.Log2(max) * float64(granularity))
-		cand = math.Pow(2, exp/float64(granularity))
+	rounded := math.Round(diff)
+	if rounded < 1 {
+		rounded = 1
 	}
 
-	if cand < min {
-		cand = min
+	lower := 1.0
+	if min >= 1 {
+		lower = math.Ceil(min)
 	}
-	if max > 0 && cand > max {
-		cand = max
+	upper := math.Inf(1)
+	if max >= 1 {
+		upper = math.Floor(max)
 	}
-	return cand
+	if upper < lower {
+		upper = lower
+	}
+	if rounded < lower {
+		rounded = lower
+	}
+	if rounded > upper {
+		rounded = upper
+	}
+	return rounded
 }
 
 func (mc *MinerConn) clampDifficulty(diff float64) float64 {
@@ -1378,12 +1407,7 @@ func (mc *MinerConn) clampDifficulty(diff float64) float64 {
 	if max > 0 && diff > max {
 		diff = max
 	}
-	granularity := mc.cfg.DifficultyStepGranularity
-	if granularity <= 0 {
-		granularity = defaultDifficultyStepGranularity
-	}
-	// Snap the final difficulty to the configured logarithmic step grid.
-	return quantizeDifficulty(diff, min, max, granularity)
+	return roundAssignedDifficulty(diff, min, max)
 }
 
 func (mc *MinerConn) setDifficulty(diff float64) {
@@ -1410,17 +1434,43 @@ func (mc *MinerConn) setDifficulty(diff float64) {
 
 	// Don't send pool->miner notifications until the miner has subscribed.
 	if !mc.subscribed {
+		mc.pendingDifficulty = true
 		return
 	}
 
+	mc.sendDifficultyNotification(diff)
+}
+
+func (mc *MinerConn) sendDifficultyNotification(diff float64) {
+	if !mc.subscribed {
+		mc.pendingDifficulty = true
+		return
+	}
+	mc.pendingDifficulty = false
 	msg := map[string]any{
 		"id":     nil,
 		"method": "mining.set_difficulty",
-		"params": []any{diff},
+		"params": []any{stratumDifficulty(diff)},
 	}
 	if err := mc.writeJSON(msg); err != nil {
 		logger.Error("difficulty write error", "remote", mc.id, "error", err)
 	}
+}
+
+type stratumDifficulty float64
+
+func (d stratumDifficulty) MarshalJSON() ([]byte, error) {
+	f := float64(d)
+	if math.IsNaN(f) || math.IsInf(f, 0) {
+		return nil, fmt.Errorf("invalid stratum difficulty %v", f)
+	}
+	if f >= 1 {
+		rounded := math.Round(f)
+		if math.Abs(f-rounded) <= 1e-9 && rounded <= float64(1<<63-1) {
+			return []byte(strconv.FormatInt(int64(rounded), 10)), nil
+		}
+	}
+	return []byte(strconv.FormatFloat(f, 'f', -1, 64)), nil
 }
 
 // startupPrimedDifficulty applies a bounded startup bias toward slightly lower
@@ -1453,8 +1503,10 @@ func (mc *MinerConn) startupPrimedDifficulty(diff float64) float64 {
 
 func (mc *MinerConn) sendVersionMask() {
 	if !mc.subscribed {
+		mc.pendingVersionMask = true
 		return
 	}
+	mc.pendingVersionMask = false
 	msg := map[string]any{
 		"id":     nil,
 		"method": "mining.set_version_mask",
@@ -1462,6 +1514,18 @@ func (mc *MinerConn) sendVersionMask() {
 	}
 	if err := mc.writeJSON(msg); err != nil {
 		logger.Error("version mask write error", "remote", mc.id, "error", err)
+	}
+}
+
+func (mc *MinerConn) sendPendingStratumSetup() {
+	if !mc.subscribed {
+		return
+	}
+	if mc.pendingDifficulty {
+		mc.sendDifficultyNotification(mc.currentDifficulty())
+	}
+	if mc.pendingVersionMask && mc.versionRoll {
+		mc.sendVersionMask()
 	}
 }
 

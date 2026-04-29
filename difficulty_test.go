@@ -76,23 +76,25 @@ func TestDiff1TargetMatchesCompact(t *testing.T) {
 	}
 }
 
-func TestQuantizeDifficultyGranularity(t *testing.T) {
+func TestRoundAssignedDifficulty(t *testing.T) {
 	tests := []struct {
-		name        string
-		diff        float64
-		granularity int
-		want        float64
+		name string
+		diff float64
+		min  float64
+		max  float64
+		want float64
 	}{
-		{name: "pow2_only", diff: 2.3, granularity: 1, want: 2.0},
-		{name: "half_steps", diff: 2.3, granularity: 2, want: 2.0},
-		{name: "quarter_steps", diff: 2.3, granularity: 4, want: 2.378414230005442},
-		{name: "tenth_steps_default", diff: 2.3, granularity: defaultDifficultyStepGranularity, want: 2.29739670999407},
+		{name: "round_down_at_one_plus", diff: 2.3, min: 1, want: 2},
+		{name: "round_up_at_one_plus", diff: 2.6, min: 1, want: 3},
+		{name: "keep_fractional_below_one", diff: 0.75, min: 0, want: 0.75},
+		{name: "ceil_fractional_min_at_one_plus", diff: 2.3, min: 2.2, want: 3},
+		{name: "floor_fractional_max_at_one_plus", diff: 2.8, min: 0, max: 2.2, want: 2},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := quantizeDifficulty(tc.diff, 1, 0, tc.granularity)
+			got := roundAssignedDifficulty(tc.diff, tc.min, tc.max)
 			if !almostEqualFloat64(got, tc.want, 1e-12) {
-				t.Fatalf("quantizeDifficulty(%.8f, gran=%d) got %.16g want %.16g", tc.diff, tc.granularity, got, tc.want)
+				t.Fatalf("roundAssignedDifficulty(%.8f, %.8f, %.8f) got %.16g want %.16g", tc.diff, tc.min, tc.max, got, tc.want)
 			}
 		})
 	}

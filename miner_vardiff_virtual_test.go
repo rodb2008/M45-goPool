@@ -76,9 +76,8 @@ func runVirtualVardiff(cfg virtualVardiffConfig) virtualVardiffResult {
 
 	mc := &MinerConn{
 		cfg: Config{
-			DifficultyStepGranularity: 4,
-			MinDifficulty:             cfg.minDiff,
-			MaxDifficulty:             cfg.maxDiff,
+			MinDifficulty: cfg.minDiff,
+			MaxDifficulty: cfg.maxDiff,
 		},
 		vardiff: VarDiffConfig{
 			MinDiff:            cfg.minDiff,

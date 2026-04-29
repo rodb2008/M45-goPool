@@ -143,7 +143,6 @@ type AdminSettingsData struct {
 	DefaultDifficulty                float64
 	TargetSharesPerMin               float64
 	VarDiffEnabled                   bool
-	DifficultyStepGranularity        int
 	LockSuggestedDifficulty          bool
 	EnforceSuggestedDifficultyLimits bool
 	ShareJobFreshnessMode            int
@@ -186,7 +185,7 @@ type AdminSettingsData struct {
 	HashrateRecentCumulativeEnabled     bool
 	ShareNTimeMaxForwardSeconds         int
 	MinVersionBits                      int
-	ShareAllowVersionMaskMismatch       bool
+	ShareAllowOutOfMaskVersionBits      bool
 	ShareAllowDegradedVersionBits       bool
 	BIP110Enabled                       bool
 }
@@ -276,9 +275,9 @@ const (
 	adminMaxReconnectBanWindowSecs   = 86_400
 	adminMinReconnectBanDurationSecs = 10
 	adminMaxReconnectBanDurationSecs = 604_800
-	adminMinExtranonce2Size          = 1
-	adminMaxExtranonce2Size          = 8
-	adminMinTemplateExtranonce2Size  = 1
+	adminMinExtranonce2Size          = minCompatibleExtranonce2Size
+	adminMaxExtranonce2Size          = maxCompatibleExtranonce2Size
+	adminMinTemplateExtranonce2Size  = minCompatibleExtranonce2Size
 	adminMaxTemplateExtranonce2Size  = 16
 )
 

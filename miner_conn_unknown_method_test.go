@@ -117,7 +117,58 @@ func TestMinerConn_UnknownMethodWithNullID_NoResponse(t *testing.T) {
 	}
 }
 
-func TestMinerConn_InvalidJSONWithSniffedID_GetsParseErrorResponse(t *testing.T) {
+func TestMinerConn_MiningTermClosesGracefully(t *testing.T) {
+	server, client := net.Pipe()
+	defer client.Close()
+
+	mc := &MinerConn{
+		id:           "test-mining-term",
+		ctx:          context.Background(),
+		conn:         server,
+		reader:       bufio.NewReader(server),
+		cfg:          Config{ConnectionTimeout: time.Hour},
+		lastActivity: time.Now(),
+	}
+
+	done := make(chan struct{})
+	go func() {
+		mc.handle()
+		close(done)
+	}()
+
+	_, err := io.WriteString(client, `{"id":7,"method":"mining.term","params":[]}`+"\n")
+	if err != nil {
+		t.Fatalf("write request: %v", err)
+	}
+
+	br := bufio.NewReader(client)
+	line, err := br.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal([]byte(line), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v; line=%q", err, line)
+	}
+	if id, ok := resp["id"].(float64); !ok || id != 7 {
+		t.Fatalf("expected id=7, got %#v", resp["id"])
+	}
+	if result, ok := resp["result"].(bool); !ok || !result {
+		t.Fatalf("expected true result, got %#v", resp["result"])
+	}
+	if resp["error"] != nil {
+		t.Fatalf("expected nil error, got %#v", resp["error"])
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatalf("miner conn did not exit after mining.term")
+	}
+}
+
+func TestMinerConn_InvalidJSONClosesWithoutParseErrorResponse(t *testing.T) {
 	server, client := net.Pipe()
 	defer client.Close()
 
@@ -136,32 +187,15 @@ func TestMinerConn_InvalidJSONWithSniffedID_GetsParseErrorResponse(t *testing.T)
 		close(done)
 	}()
 
-	// Valid top-level id/method so the fast sniffer can extract the id, but
-	// invalid JSON overall (unterminated params array/object).
+	// Invalid JSON closes the connection without attempting raw ID recovery.
 	_, err := io.WriteString(client, `{"id":1,"method":"mining.authorize","params":["worker","x"`+"\n")
 	if err != nil {
 		t.Fatalf("write request: %v", err)
 	}
 
 	br := bufio.NewReader(client)
-	line, err := br.ReadString('\n')
-	if err != nil {
-		t.Fatalf("read response: %v", err)
-	}
-
-	var resp map[string]any
-	if err := json.Unmarshal([]byte(line), &resp); err != nil {
-		t.Fatalf("unmarshal response: %v; line=%q", err, line)
-	}
-	if id, ok := resp["id"].(float64); !ok || id != 1 {
-		t.Fatalf("expected id=1, got %#v", resp["id"])
-	}
-	errVal, ok := resp["error"].([]any)
-	if !ok || len(errVal) < 2 {
-		t.Fatalf("expected error array, got %#v", resp["error"])
-	}
-	if code, ok := errVal[0].(float64); !ok || int(code) != stratumErrCodeParseError {
-		t.Fatalf("expected parse error code %d, got %#v", stratumErrCodeParseError, errVal[0])
+	if line, err := br.ReadString('\n'); err == nil {
+		t.Fatalf("expected no parse-error response, got %q", line)
 	}
 
 	_ = client.Close()

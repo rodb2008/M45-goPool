@@ -304,15 +304,15 @@ func TestHandleSubmit_UnknownJobFreshnessOff_ClassifiedAsStaleNotLowDiff(t *test
 }
 
 func TestPrepareSubmissionTask_FieldValidation_MalformedNTimeNonceVersion(t *testing.T) {
-	t.Run("invalid ntime length rejects", func(t *testing.T) {
+	t.Run("empty ntime rejects", func(t *testing.T) {
 		mc, job := newSubmitReadyMinerConnForModesTest(t)
 		conn := &recordConn{}
 		mc.conn = conn
 
 		req := testSubmitRequestForJob(job, mc.currentWorker())
-		req.Params[3] = "1234"
+		req.Params[3] = ""
 		if _, ok := mc.prepareSubmissionTask(req, time.Now()); ok {
-			t.Fatalf("expected short ntime to be rejected")
+			t.Fatalf("expected empty ntime to be rejected")
 		}
 		if out := conn.String(); !strings.Contains(out, "invalid ntime") {
 			t.Fatalf("expected invalid ntime rejection, got: %q", out)
@@ -334,18 +334,34 @@ func TestPrepareSubmissionTask_FieldValidation_MalformedNTimeNonceVersion(t *tes
 		}
 	})
 
-	t.Run("invalid nonce length rejects", func(t *testing.T) {
+	t.Run("non-padded nonce accepted", func(t *testing.T) {
 		mc, job := newSubmitReadyMinerConnForModesTest(t)
-		conn := &recordConn{}
-		mc.conn = conn
 
 		req := testSubmitRequestForJob(job, mc.currentWorker())
 		req.Params[4] = "123"
-		if _, ok := mc.prepareSubmissionTask(req, time.Now()); ok {
-			t.Fatalf("expected short nonce to be rejected")
+		task, ok := mc.prepareSubmissionTask(req, time.Now())
+		if !ok {
+			t.Fatalf("expected short nonce to be accepted")
 		}
-		if out := conn.String(); !strings.Contains(out, "invalid nonce") {
-			t.Fatalf("expected invalid nonce rejection, got: %q", out)
+		if got, want := task.nonceVal, uint32(0x123); got != want {
+			t.Fatalf("nonce=%08x want=%08x", got, want)
+		}
+	})
+
+	t.Run("long nonce truncated", func(t *testing.T) {
+		mc, job := newSubmitReadyMinerConnForModesTest(t)
+
+		req := testSubmitRequestForJob(job, mc.currentWorker())
+		req.Params[4] = "123456789abc"
+		task, ok := mc.prepareSubmissionTask(req, time.Now())
+		if !ok {
+			t.Fatalf("expected long nonce to be normalized")
+		}
+		if got, want := task.nonce, "12345678"; got != want {
+			t.Fatalf("nonce string=%q want=%q", got, want)
+		}
+		if got, want := task.nonceVal, uint32(0x12345678); got != want {
+			t.Fatalf("nonce=%08x want=%08x", got, want)
 		}
 	})
 
@@ -406,6 +422,55 @@ func TestPrepareSubmissionTask_FieldValidation_MalformedNTimeNonceVersion(t *tes
 		}
 		if out := conn.String(); !strings.Contains(out, "invalid version") {
 			t.Fatalf("expected invalid-version rejection, got: %q", out)
+		}
+	})
+
+	t.Run("short extranonce2 right-padded", func(t *testing.T) {
+		mc, job := newSubmitReadyMinerConnForModesTest(t)
+
+		req := testSubmitRequestForJob(job, mc.currentWorker())
+		req.Params[2] = "abcd"
+		task, ok := mc.prepareSubmissionTask(req, time.Now())
+		if !ok {
+			t.Fatalf("expected short extranonce2 to be normalized")
+		}
+		if got, want := task.extranonce2, "abcd0000"; got != want {
+			t.Fatalf("extranonce2=%q want=%q", got, want)
+		}
+		if got, want := fmt.Sprintf("%x", task.extranonce2Decoded()), "abcd0000"; got != want {
+			t.Fatalf("decoded extranonce2=%q want=%q", got, want)
+		}
+	})
+
+	t.Run("long extranonce2 truncated", func(t *testing.T) {
+		mc, job := newSubmitReadyMinerConnForModesTest(t)
+
+		req := testSubmitRequestForJob(job, mc.currentWorker())
+		req.Params[2] = "abcdef012345"
+		task, ok := mc.prepareSubmissionTask(req, time.Now())
+		if !ok {
+			t.Fatalf("expected long extranonce2 to be normalized")
+		}
+		if got, want := task.extranonce2, "abcdef01"; got != want {
+			t.Fatalf("extranonce2=%q want=%q", got, want)
+		}
+		if got, want := fmt.Sprintf("%x", task.extranonce2Decoded()), "abcdef01"; got != want {
+			t.Fatalf("decoded extranonce2=%q want=%q", got, want)
+		}
+	})
+
+	t.Run("invalid extranonce2 hex rejects", func(t *testing.T) {
+		mc, job := newSubmitReadyMinerConnForModesTest(t)
+		conn := &recordConn{}
+		mc.conn = conn
+
+		req := testSubmitRequestForJob(job, mc.currentWorker())
+		req.Params[2] = "zzzz"
+		if _, ok := mc.prepareSubmissionTask(req, time.Now()); ok {
+			t.Fatalf("expected non-hex extranonce2 to be rejected")
+		}
+		if out := conn.String(); !strings.Contains(out, "invalid extranonce2") {
+			t.Fatalf("expected invalid extranonce2 rejection, got: %q", out)
 		}
 	})
 }
@@ -503,8 +568,8 @@ func TestPrepareSubmissionTask_VersionRollingPolicyBoundaries(t *testing.T) {
 		return mc, req
 	}
 
-	t.Run("delta inside mask with enough bits accepted", func(t *testing.T) {
-		mc, req := newVersionReq("00000003")
+	t.Run("BIP310 bits inside mask with enough changed bits accepted", func(t *testing.T) {
+		mc, req := newVersionReq("00000006")
 		task, ok := mc.prepareSubmissionTask(req, time.Now())
 		if !ok {
 			t.Fatalf("expected valid version delta to be accepted")
@@ -514,19 +579,19 @@ func TestPrepareSubmissionTask_VersionRollingPolicyBoundaries(t *testing.T) {
 		}
 	})
 
-	t.Run("delta inside mask with insufficient bits rejected by policy", func(t *testing.T) {
-		mc, req := newVersionReq("00000001")
+	t.Run("BIP310 bits inside mask accepted regardless of changed bit count", func(t *testing.T) {
+		mc, req := newVersionReq("00000003")
 		task, ok := mc.prepareSubmissionTask(req, time.Now())
 		if !ok {
-			t.Fatalf("expected insufficient bits to be policy-only reject")
+			t.Fatalf("expected in-mask version bits to be accepted")
 		}
-		if task.policyReject.reason != rejectInsufficientVersionBits {
-			t.Fatalf("got policy=%v want %v", task.policyReject.reason, rejectInsufficientVersionBits)
+		if task.policyReject.reason != rejectUnknown {
+			t.Fatalf("unexpected policy reject: %+v", task.policyReject)
 		}
 	})
 
 	t.Run("degraded mode allows insufficient bits", func(t *testing.T) {
-		mc, req := newVersionReq("00000001")
+		mc, req := newVersionReq("00000003")
 		mc.cfg.ShareAllowDegradedVersionBits = true
 		task, ok := mc.prepareSubmissionTask(req, time.Now())
 		if !ok {
@@ -540,7 +605,7 @@ func TestPrepareSubmissionTask_VersionRollingPolicyBoundaries(t *testing.T) {
 	t.Run("version outside mask rejected by policy", func(t *testing.T) {
 		mc, req := newVersionReq("00000010")
 		mc.minVerBits = 0
-		mc.cfg.ShareAllowVersionMaskMismatch = false
+		mc.cfg.ShareAllowOutOfMaskVersionBits = false
 		task, ok := mc.prepareSubmissionTask(req, time.Now())
 		if !ok {
 			t.Fatalf("expected out-of-mask version to be policy-only reject")
@@ -553,7 +618,7 @@ func TestPrepareSubmissionTask_VersionRollingPolicyBoundaries(t *testing.T) {
 	t.Run("version outside mask allowed when compatibility mode enabled", func(t *testing.T) {
 		mc, req := newVersionReq("00000010")
 		mc.minVerBits = 0
-		mc.cfg.ShareAllowVersionMaskMismatch = true
+		mc.cfg.ShareAllowOutOfMaskVersionBits = true
 		task, ok := mc.prepareSubmissionTask(req, time.Now())
 		if !ok {
 			t.Fatalf("expected out-of-mask version to remain processable when compatibility mode is enabled")
@@ -563,9 +628,10 @@ func TestPrepareSubmissionTask_VersionRollingPolicyBoundaries(t *testing.T) {
 		}
 	})
 
-	t.Run("version rolling disabled policy rejects non-zero delta", func(t *testing.T) {
+	t.Run("version rolling disabled policy rejects non-zero delta in strict mode", func(t *testing.T) {
 		mc, req := newVersionReq("00000003")
 		mc.versionRoll = false
+		mc.cfg.ShareAllowOutOfMaskVersionBits = false
 		task, ok := mc.prepareSubmissionTask(req, time.Now())
 		if !ok {
 			t.Fatalf("expected disabled version rolling to return policy-only reject")
@@ -574,6 +640,91 @@ func TestPrepareSubmissionTask_VersionRollingPolicyBoundaries(t *testing.T) {
 			t.Fatalf("got policy=%v want %v", task.policyReject.reason, rejectInvalidVersion)
 		}
 	})
+
+	t.Run("version rolling disabled allowed in compatibility mode", func(t *testing.T) {
+		mc, req := newVersionReq("00000003")
+		mc.versionRoll = false
+		mc.cfg.ShareAllowOutOfMaskVersionBits = true
+		task, ok := mc.prepareSubmissionTask(req, time.Now())
+		if !ok {
+			t.Fatalf("expected disabled version rolling to return a processable task in compatibility mode")
+		}
+		if task.policyReject.reason != rejectUnknown {
+			t.Fatalf("unexpected policy reject: %+v", task.policyReject)
+		}
+	})
+}
+
+func TestResolveSubmittedVersionPrefersBIP310WithLegacyAlternate(t *testing.T) {
+	base := uint32(0x20002000)
+	mask := uint32(0x0000e000)
+	got := resolveSubmittedVersion(base, 0x00004000, mask, false)
+
+	if got.useVersion != 0x20004000 {
+		t.Fatalf("BIP310 useVersion=%08x want 20004000", got.useVersion)
+	}
+	if got.versionDiff != 0x00006000 {
+		t.Fatalf("BIP310 versionDiff=%08x want 00006000", got.versionDiff)
+	}
+	if !got.hasAlternateVersion {
+		t.Fatalf("expected XOR-delta alternate for ambiguous in-mask submit")
+	}
+	if got.alternateUseVersion != 0x20006000 {
+		t.Fatalf("alternateUseVersion=%08x want 20006000", got.alternateUseVersion)
+	}
+}
+
+func TestPreferAlternateSubmissionContext(t *testing.T) {
+	tests := []struct {
+		name              string
+		primary           shareContext
+		alternate         shareContext
+		primaryAcceptable bool
+		altAcceptable     bool
+		want              bool
+	}{
+		{
+			name:              "alternate block wins over primary share",
+			primary:           shareContext{shareDiff: 10},
+			alternate:         shareContext{isBlock: true, shareDiff: 10},
+			primaryAcceptable: true,
+			altAcceptable:     true,
+			want:              true,
+		},
+		{
+			name:              "primary block is kept",
+			primary:           shareContext{isBlock: true, shareDiff: 10},
+			alternate:         shareContext{shareDiff: 10},
+			primaryAcceptable: true,
+			altAcceptable:     true,
+			want:              false,
+		},
+		{
+			name:              "alternate acceptable share replaces low-diff primary",
+			primary:           shareContext{shareDiff: 0.5},
+			alternate:         shareContext{shareDiff: 10},
+			primaryAcceptable: false,
+			altAcceptable:     true,
+			want:              true,
+		},
+		{
+			name:              "primary acceptable share is kept",
+			primary:           shareContext{shareDiff: 10},
+			alternate:         shareContext{shareDiff: 20},
+			primaryAcceptable: true,
+			altAcceptable:     true,
+			want:              false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := preferAlternateSubmissionContext(tc.primary, tc.alternate, tc.primaryAcceptable, tc.altAcceptable)
+			if got != tc.want {
+				t.Fatalf("preferAlternateSubmissionContext=%v want %v", got, tc.want)
+			}
+		})
+	}
 }
 
 func TestPrepareSubmissionTask_FieldValidationAndBoundaries(t *testing.T) {
@@ -591,9 +742,9 @@ func TestPrepareSubmissionTask_FieldValidationAndBoundaries(t *testing.T) {
 
 	cases := []parityCase{
 		{
-			name: "invalid ntime length rejects",
+			name: "empty ntime rejects",
 			mutateReq: func(req *StratumRequest) {
-				req.Params[3] = "1234"
+				req.Params[3] = ""
 			},
 			wantOK:          false,
 			wantErrContains: "invalid ntime",
@@ -607,12 +758,15 @@ func TestPrepareSubmissionTask_FieldValidationAndBoundaries(t *testing.T) {
 			wantErrContains: "invalid ntime",
 		},
 		{
-			name: "invalid nonce length rejects",
+			name: "non-padded nonce accepted",
 			mutateReq: func(req *StratumRequest) {
 				req.Params[4] = "123"
 			},
-			wantOK:          false,
-			wantErrContains: "invalid nonce",
+			wantOK:           true,
+			wantPolicyReason: rejectUnknown,
+			wantNTime:        1700000000,
+			wantNonce:        0x123,
+			wantUseVersion:   1,
 		},
 		{
 			name: "invalid nonce hex rejects",
@@ -711,7 +865,24 @@ func TestPrepareSubmissionTask_FieldValidationAndBoundaries(t *testing.T) {
 			wantUseVersion:   0x10,
 		},
 		{
-			name: "version delta in mask with enough bits accepted",
+			name: "BIP310 version bits in mask with enough changed bits accepted",
+			configure: func(mc *MinerConn, _ *Job) {
+				mc.cfg.ShareCheckVersionRolling = true
+				mc.versionMask = 0x0000000f
+				mc.versionRoll = true
+				mc.minVerBits = 2
+			},
+			mutateReq: func(req *StratumRequest) {
+				req.Params = append(req.Params, "00000006")
+			},
+			wantOK:           true,
+			wantPolicyReason: rejectUnknown,
+			wantNTime:        1700000000,
+			wantNonce:        1,
+			wantUseVersion:   6, // BIP310 replacement bits with base version 1
+		},
+		{
+			name: "BIP310 version bits accepted regardless of changed bit count",
 			configure: func(mc *MinerConn, _ *Job) {
 				mc.cfg.ShareCheckVersionRolling = true
 				mc.versionMask = 0x0000000f
@@ -725,24 +896,7 @@ func TestPrepareSubmissionTask_FieldValidationAndBoundaries(t *testing.T) {
 			wantPolicyReason: rejectUnknown,
 			wantNTime:        1700000000,
 			wantNonce:        1,
-			wantUseVersion:   2, // base version 1 XOR delta 3
-		},
-		{
-			name: "version insufficient bits policy reject",
-			configure: func(mc *MinerConn, _ *Job) {
-				mc.cfg.ShareCheckVersionRolling = true
-				mc.versionMask = 0x0000000f
-				mc.versionRoll = true
-				mc.minVerBits = 2
-			},
-			mutateReq: func(req *StratumRequest) {
-				req.Params = append(req.Params, "00000001")
-			},
-			wantOK:           true,
-			wantPolicyReason: rejectInsufficientVersionBits,
-			wantNTime:        1700000000,
-			wantNonce:        1,
-			wantUseVersion:   0,
+			wantUseVersion:   3,
 		},
 		{
 			name: "version degraded mode allows insufficient bits",
@@ -754,19 +908,19 @@ func TestPrepareSubmissionTask_FieldValidationAndBoundaries(t *testing.T) {
 				mc.minVerBits = 2
 			},
 			mutateReq: func(req *StratumRequest) {
-				req.Params = append(req.Params, "00000001")
+				req.Params = append(req.Params, "00000003")
 			},
 			wantOK:           true,
 			wantPolicyReason: rejectUnknown,
 			wantNTime:        1700000000,
 			wantNonce:        1,
-			wantUseVersion:   0,
+			wantUseVersion:   3,
 		},
 		{
 			name: "version outside mask allowed in compatibility mode",
 			configure: func(mc *MinerConn, _ *Job) {
 				mc.cfg.ShareCheckVersionRolling = true
-				mc.cfg.ShareAllowVersionMaskMismatch = true
+				mc.cfg.ShareAllowOutOfMaskVersionBits = true
 				mc.versionMask = 0x0000000f
 				mc.versionRoll = true
 				mc.minVerBits = 0
@@ -784,7 +938,7 @@ func TestPrepareSubmissionTask_FieldValidationAndBoundaries(t *testing.T) {
 			name: "full version outside mask is interpreted as delta in compatibility mode",
 			configure: func(mc *MinerConn, _ *Job) {
 				mc.cfg.ShareCheckVersionRolling = true
-				mc.cfg.ShareAllowVersionMaskMismatch = true
+				mc.cfg.ShareAllowOutOfMaskVersionBits = true
 				mc.versionMask = 0x0000000f
 				mc.versionRoll = true
 				mc.minVerBits = 0
@@ -802,7 +956,7 @@ func TestPrepareSubmissionTask_FieldValidationAndBoundaries(t *testing.T) {
 			name: "version outside mask policy reject",
 			configure: func(mc *MinerConn, _ *Job) {
 				mc.cfg.ShareCheckVersionRolling = true
-				mc.cfg.ShareAllowVersionMaskMismatch = false
+				mc.cfg.ShareAllowOutOfMaskVersionBits = false
 				mc.versionMask = 0x0000000f
 				mc.versionRoll = true
 				mc.minVerBits = 0
@@ -820,6 +974,7 @@ func TestPrepareSubmissionTask_FieldValidationAndBoundaries(t *testing.T) {
 			name: "version rolling disabled policy reject",
 			configure: func(mc *MinerConn, _ *Job) {
 				mc.cfg.ShareCheckVersionRolling = true
+				mc.cfg.ShareAllowOutOfMaskVersionBits = false
 				mc.versionMask = 0x0000000f
 				mc.versionRoll = false
 				mc.minVerBits = 0
@@ -831,7 +986,25 @@ func TestPrepareSubmissionTask_FieldValidationAndBoundaries(t *testing.T) {
 			wantPolicyReason: rejectInvalidVersion,
 			wantNTime:        1700000000,
 			wantNonce:        1,
-			wantUseVersion:   2,
+			wantUseVersion:   3,
+		},
+		{
+			name: "version rolling disabled allowed in compatibility mode",
+			configure: func(mc *MinerConn, _ *Job) {
+				mc.cfg.ShareCheckVersionRolling = true
+				mc.cfg.ShareAllowOutOfMaskVersionBits = true
+				mc.versionMask = 0x0000000f
+				mc.versionRoll = false
+				mc.minVerBits = 0
+			},
+			mutateReq: func(req *StratumRequest) {
+				req.Params = append(req.Params, "00000003")
+			},
+			wantOK:           true,
+			wantPolicyReason: rejectUnknown,
+			wantNTime:        1700000000,
+			wantNonce:        1,
+			wantUseVersion:   3,
 		},
 	}
 

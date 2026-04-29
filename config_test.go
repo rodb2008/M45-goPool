@@ -61,6 +61,13 @@ func TestSanitizePayoutAddress(t *testing.T) {
 	}
 }
 
+func TestDefaultConfig_AllowsOutOfMaskVersionBits(t *testing.T) {
+	cfg := defaultConfig()
+	if !cfg.ShareAllowOutOfMaskVersionBits {
+		t.Fatalf("expected out-of-mask version bits to be allowed by default")
+	}
+}
+
 type fakeVersionMaskRPC struct {
 	chain  string
 	err    error
@@ -682,6 +689,16 @@ func TestLoadTuningFile_IgnoresRemovedStratumFastPathKeys(t *testing.T) {
 	}
 	if cfg.StratumTCPWriteBufferBytes != 262144 {
 		t.Fatalf("StratumTCPWriteBufferBytes = %d, want 262144", cfg.StratumTCPWriteBufferBytes)
+	}
+}
+
+func TestDefaultCompatibilityExtranonce2Bounds(t *testing.T) {
+	for _, size := range []int{1, 17} {
+		cfg := defaultConfig()
+		cfg.Extranonce2Size = size
+		if err := validateConfig(cfg); err == nil {
+			t.Fatalf("expected extranonce2_size=%d to fail compatibility validation", size)
+		}
 	}
 }
 

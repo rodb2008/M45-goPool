@@ -173,9 +173,14 @@ func (mc *MinerConn) handleSubscribeID(id any, clientID string, haveClientID boo
 		}
 	}
 
-	initialJob := mc.jobMgr.CurrentJob()
+	var initialJob *Job
+	if mc.jobMgr != nil {
+		initialJob = mc.jobMgr.CurrentJob()
+	}
 	if initialJob != nil {
-		mc.updateVersionMask(initialJob.VersionMask)
+		if mc.updateVersionMask(initialJob.VersionMask) && mc.versionRoll {
+			mc.pendingVersionMask = true
+		}
 	}
 	// Only send mining.set_extranonce if the miner has explicitly subscribed
 	// to extranonce notifications via mining.extranonce.subscribe. Sending it
@@ -186,13 +191,19 @@ func (mc *MinerConn) handleSubscribeID(id any, clientID string, haveClientID boo
 		mc.sendSetExtranonce(ex1, en2Size)
 	}
 	if initialJob == nil {
-		status := mc.jobMgr.FeedStatus()
-		fields := []any{"remote", mc.id, "reason", "no job available"}
-		if status.LastError != nil {
-			fields = append(fields, "job_error", status.LastError.Error())
+		reason := "no job available"
+		if mc.jobMgr == nil {
+			reason = "no job manager"
 		}
-		if !status.LastSuccess.IsZero() {
-			fields = append(fields, "last_job_at", status.LastSuccess)
+		fields := []any{"remote", mc.id, "reason", reason}
+		if mc.jobMgr != nil {
+			status := mc.jobMgr.FeedStatus()
+			if status.LastError != nil {
+				fields = append(fields, "job_error", status.LastError.Error())
+			}
+			if !status.LastSuccess.IsZero() {
+				fields = append(fields, "last_job_at", status.LastSuccess)
+			}
 		}
 		fields = append([]any{"component", "miner", "kind", "job_state"}, fields...)
 		logger.Info("miner subscribed but no job ready", fields...)
@@ -387,7 +398,9 @@ func (mc *MinerConn) handleAuthorizeID(id any, workerParam string, pass string) 
 		mc.listenerOn = true
 		// Goroutine lifecycle: listenJobs reads from mc.jobCh until the channel is closed.
 		// Channel is closed via mc.jobMgr.Unsubscribe(mc.jobCh) in cleanup().
-		go mc.listenJobs()
+		if mc.jobCh != nil {
+			go mc.listenJobs()
+		}
 	}
 
 	if hasSuggestedDiff {
@@ -687,7 +700,7 @@ func (mc *MinerConn) applySuggestedDifficulty(diff float64) {
 		// Lock this miner to the requested difficulty (within min/max).
 		mc.lockDifficulty = true
 	}
-	mc.setDifficulty(mc.startupPrimedDifficulty(diff))
+	mc.setDifficulty(diff)
 	mc.maybeSendInitialWork()
 	mc.maybeSendCleanJobAfterSuggest()
 }
@@ -910,9 +923,22 @@ func (mc *MinerConn) maybeSendCleanJobAfterSuggest() {
 	if !mc.authorized || !mc.listenerOn {
 		return
 	}
-	if job := mc.jobMgr.CurrentJob(); job != nil {
-		mc.sendNotifyFor(job, true)
+	if mc.jobMgr != nil {
+		if job := mc.jobMgr.CurrentJob(); job != nil {
+			mc.sendNotifyFor(job, true)
+		}
 	}
+}
+
+func (mc *MinerConn) maybeApplyMinimumDifficultyFloor(floor float64) {
+	if floor <= 0 {
+		return
+	}
+	if mc.currentDifficulty() >= floor {
+		return
+	}
+	mc.setDifficulty(floor)
+	mc.maybeSendCleanJobAfterSuggest()
 }
 
 func stratumNotifyJobID(base string, seq uint64) string {
@@ -976,6 +1002,7 @@ func (mc *MinerConn) handleConfigure(req *StratumRequest) {
 	result := make(map[string]any)
 	shouldSendVersionMask := false
 	shouldSendExtranonce := false
+	shouldApplyMinDifficulty := 0.0
 	banReason := ""
 	for _, ext := range rawExts {
 		if banReason != "" {
@@ -1074,6 +1101,7 @@ func (mc *MinerConn) handleConfigure(req *StratumRequest) {
 							break
 						}
 						atomicStoreFloat64(&mc.hintMinDifficulty, minDiff)
+						shouldApplyMinDifficulty = minDiff
 					}
 				}
 			}
@@ -1114,6 +1142,7 @@ func (mc *MinerConn) handleConfigure(req *StratumRequest) {
 		}
 		mc.sendSetExtranonce(ex1, en2Size)
 	}
+	mc.maybeApplyMinimumDifficultyFloor(shouldApplyMinDifficulty)
 
 	// If initial work is scheduled, send it immediately after configure so
 	// miners that negotiate promptly don't wait out the startup delay.
@@ -1136,6 +1165,7 @@ func (mc *MinerConn) sendNotifyFor(job *Job, forceClean bool) {
 	if maskChanged && mc.versionRoll {
 		mc.sendVersionMask()
 	}
+	mc.sendPendingStratumSetup()
 
 	// Generate unique scriptTime for this send to prevent duplicate work.
 	// Each notification produces a different coinbase, ensuring miners can't

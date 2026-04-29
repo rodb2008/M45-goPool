@@ -168,7 +168,6 @@ type miningTuning struct {
 	JobEntropy                *int  `toml:"job_entropy"`
 	CoinbaseScriptSigMaxBytes *int  `toml:"coinbase_scriptsig_max_bytes"`
 	DisablePoolJobEntropy     *bool `toml:"disable_pool_job_entropy"`
-	DifficultyStepGranularity *int  `toml:"difficulty_step_granularity"`
 }
 
 type hashrateTuning struct {
@@ -197,10 +196,10 @@ type banTuning struct {
 }
 
 type versionTuning struct {
-	MinVersionBits                *int  `toml:"min_version_bits"`
-	ShareAllowVersionMaskMismatch *bool `toml:"share_allow_version_mask_mismatch"`
-	ShareAllowDegradedVersionBits *bool `toml:"share_allow_degraded_version_bits"`
-	BIP110Enabled                 *bool `toml:"bip110_enabled"`
+	MinVersionBits                 *int  `toml:"min_version_bits"`
+	ShareAllowOutOfMaskVersionBits *bool `toml:"share_allow_out_of_mask_version_bits"`
+	ShareAllowDegradedVersionBits  *bool `toml:"share_allow_degraded_version_bits"`
+	BIP110Enabled                  *bool `toml:"bip110_enabled"`
 }
 
 // fileOverrideConfig groups override sections used internally when applying

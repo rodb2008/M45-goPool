@@ -630,6 +630,42 @@ func TestSuggestedVardiff_ShareRateSafetyClamp(t *testing.T) {
 	}
 }
 
+func TestSuggestedVardiff_HighWindowShareRateOverridesLaggingControlHashrate(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	mc := &MinerConn{
+		cfg: Config{
+			MinDifficulty: 1,
+		},
+		vardiff: VarDiffConfig{
+			MinDiff:            1,
+			MaxDiff:            0,
+			TargetSharesPerMin: 15,
+			AdjustmentWindow:   defaultVarDiffAdjustmentWindow,
+			Step:               2,
+			DampingFactor:      0.7,
+		},
+	}
+	atomicStoreFloat64(&mc.difficulty, 1)
+	mc.initialEMAWindowDone.Store(true)
+	mc.vardiffAdjustments.Store(5)
+	mc.lastDiffChange.Store(now.Add(-10 * time.Minute).UnixNano())
+
+	snap := minerShareSnapshot{
+		Stats: MinerStats{
+			WindowStart:       now.Add(-time.Minute),
+			WindowAccepted:    200,
+			WindowSubmissions: 200,
+			WindowDifficulty:  200,
+		},
+		RollingHashrate: (hashPerShare * 15) / 60,
+	}
+
+	got := mc.suggestedVardiff(now, snap)
+	if got <= 1 {
+		t.Fatalf("got %.8g want upward adjustment for 200 shares/min window despite lagging control hashrate", got)
+	}
+}
+
 func TestAdaptiveVardiffWindow_AdjustsForShareDensity(t *testing.T) {
 	mc := &MinerConn{
 		vardiff: VarDiffConfig{
